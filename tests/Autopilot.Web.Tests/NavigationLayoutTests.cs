@@ -179,6 +179,19 @@ public sealed class NavigationLayoutTests
     }
 
     [Fact]
+    public void Phone_block_keeps_topbar_on_one_row_and_tabs_scrollable()
+    {
+        var css = Wwwroot("app.css");
+        var blocks = Regex.Matches(css, @"@media \(max-width: 640px\) \{(.*?)\n\}", RegexOptions.Singleline)
+            .Select(m => m.Groups[1].Value).ToArray();
+        var block = Assert.Single(blocks, b => b.Contains(".topbar {"));
+        Assert.Matches(@"\.topbar\s*\{[^}]*flex-wrap:\s*nowrap", block);
+        Assert.Matches(@"\.topbar > \*\s*\{[^}]*flex-shrink:\s*0", block);
+        Assert.Matches(@"\.tabs\s*\{[^}]*flex-wrap:\s*wrap", block);
+        Assert.Matches(@"\.tabs a\s*\{[^}]*flex-shrink:\s*0[^}]*white-space:\s*nowrap", block);
+    }
+
+    [Fact]
     public void Legacy_lookup_ignores_inherited_object_keys()
     {
         var js = Wwwroot("js/app.js");

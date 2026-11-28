@@ -300,9 +300,13 @@ dialog .row.end { justify-content: flex-end; margin-top: var(--s4); }
 }
 @media (max-width: 640px) {
   main { padding: var(--s4) .75rem 4rem; }
-  .topbar { padding: var(--s2) .75rem; gap: var(--s2); flex-wrap: wrap; }
+  .topbar { padding: var(--s2) .75rem; gap: var(--s2); flex-wrap: nowrap; }
+  .topbar > * { flex-shrink: 0; }
+  .topbar > .switcher { flex-shrink: 1; min-width: 0; }
+  .switcher select { max-width: 100%; min-width: 0; }
   .brand span { display: none; }
-  .tabs { padding: 0 var(--s2); }
+  .tabs { padding: 0 var(--s2); flex-wrap: wrap; }
+  .tabs a { flex-shrink: 0; white-space: nowrap; }
   table.stack-sm thead { display: none; }
   table.stack-sm, table.stack-sm tbody, table.stack-sm tr, table.stack-sm td { display: block; width: 100%; }
   table.stack-sm tr { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .4rem .6rem; margin-bottom: .6rem; background: var(--surface); }
