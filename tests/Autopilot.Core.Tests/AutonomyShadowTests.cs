@@ -52,12 +52,13 @@ public sealed class AutonomyShadowTests : IDisposable
     [Fact]
     public void Migration_012_applies_on_a_fresh_workspace_and_on_an_upgrade_from_011()
     {
-        Assert.Equal(12, Workspace.Workspace.LatestVersion);
+        Assert.True(Workspace.Workspace.LatestVersion >= 12);
+        long latest = Workspace.Workspace.LatestVersion;
 
         var fresh = NewWorkspace();
         using (var connection = fresh.Open())
         {
-            Assert.Equal(12L, Scalar(connection, "SELECT MAX(version) FROM schema_version"));
+            Assert.Equal(latest, Scalar(connection, "SELECT MAX(version) FROM schema_version"));
             Assert.Equal(0L, Scalar(connection, "SELECT COUNT(*) FROM shadow_records"));
         }
 
@@ -65,13 +66,13 @@ public sealed class AutonomyShadowTests : IDisposable
         using (var connection = upgraded.Open())
         {
             using var command = connection.CreateCommand();
-            command.CommandText = "DROP TABLE shadow_records; DELETE FROM schema_version WHERE version = 12;";
+            command.CommandText = "DROP TABLE IF EXISTS pool_overrides; DROP TABLE shadow_records; DELETE FROM schema_version WHERE version >= 12;";
             command.ExecuteNonQuery();
             Assert.Equal(11L, Scalar(connection, "SELECT MAX(version) FROM schema_version"));
         }
 
         using var after = upgraded.Open();
-        Assert.Equal(12L, Scalar(after, "SELECT MAX(version) FROM schema_version"));
+        Assert.Equal(latest, Scalar(after, "SELECT MAX(version) FROM schema_version"));
         Assert.Equal(0L, Scalar(after, "SELECT COUNT(*) FROM shadow_records"));
     }
 

@@ -35,6 +35,24 @@ They live in the project's `autopilot.json` under `pool`, in the Pool page of th
 | `concurrency` | 1 to 4 agents at once. |
 | `integration` | See below. |
 
+## Pool-level override of the project defaults
+
+Five settings can also be stored per project in the workspace database (table `pool_overrides`,
+migration 013): `unattended`, `concurrency`, `master.enabled`, `budget.stopAtUsagePercent` and
+`integration.enabled`. Each one is optional. A value that is set wins over `autopilot.json` for that
+project's pool only; a value that is not set (or a project with no override at all) uses the
+`autopilot.json` value. Fields resolve one by one, so an override of `concurrency` leaves the other
+four on the project's values. `autopilot.json` itself is never changed by an override.
+
+The web API shows the result. `GET /api/projects/<key>/pool/status` has, under `settings`, the effective
+values (`concurrency`, `unattended`, ...), `effective` (for each of the five: `value` and `source`,
+which is `pool` or `project`) and `override` (the stored values, `null` when there is no row).
+`PUT /api/projects/<key>/pool/settings/override` stores the override (a field left out or `null` is
+cleared) and `DELETE` on the same path removes it. Both return the settings view.
+
+Limit of this version: the web API and the resolver (`PoolSettingsResolver`) exist; the pool runner still
+reads the project's `autopilot.json` values.
+
 ## What the pool master decides
 
 When a task comes back as needs-human and the pool is unattended:

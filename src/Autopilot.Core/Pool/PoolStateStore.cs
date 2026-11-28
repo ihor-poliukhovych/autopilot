@@ -82,6 +82,45 @@ public sealed class PoolStateStore(Workspace.Workspace workspace, string project
     private static PoolDecision ReadDecision(SqliteDataReader r) =>
         new(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), r.GetString(5), Db.StringOrNull(r, 6), Db.ParseStamp(r.GetString(7)), Db.ParseStampOrNull(r, 8));
 
+    // ---------- pool-level overrides of the project's settings ----------
+
+    /// <summary>The pool-level override of this project, or null when it has no row.</summary>
+    public PoolOverride? Override()
+    {
+        using var connection = workspace.Open();
+        return Db.Query(connection,
+            r => new PoolOverride(Bool(r, 0), Int(r, 1), Bool(r, 2), Int(r, 3), Bool(r, 4)),
+            "SELECT unattended, concurrency, master_enabled, budget_stop_percent, integration_enabled FROM pool_overrides WHERE project_key = $k",
+            ("$k", projectKey)).FirstOrDefault();
+    }
+
+    /// <summary>Stores the override. An override with every field null removes the row.</summary>
+    public void SetOverride(PoolOverride value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (value.IsEmpty)
+        {
+            ClearOverride();
+            return;
+        }
+
+        using var connection = workspace.Open();
+        Db.Execute(connection,
+            "INSERT INTO pool_overrides (project_key, unattended, concurrency, master_enabled, budget_stop_percent, integration_enabled) VALUES ($k, $u, $c, $m, $b, $i) "
+            + "ON CONFLICT(project_key) DO UPDATE SET unattended = $u, concurrency = $c, master_enabled = $m, budget_stop_percent = $b, integration_enabled = $i",
+            ("$k", projectKey), ("$u", value.Unattended), ("$c", value.Concurrency), ("$m", value.MasterEnabled), ("$b", value.BudgetStopPercent), ("$i", value.IntegrationEnabled));
+    }
+
+    public void ClearOverride()
+    {
+        using var connection = workspace.Open();
+        Db.Execute(connection, "DELETE FROM pool_overrides WHERE project_key = $k", ("$k", projectKey));
+    }
+
+    private static bool? Bool(SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetInt64(i) != 0;
+
+    private static int? Int(SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetInt32(i);
+
     // ---------- notes for the next attempt ----------
 
     /// <summary>Keeps a note for the next attempt at a task whose text lives in a tracker.</summary>

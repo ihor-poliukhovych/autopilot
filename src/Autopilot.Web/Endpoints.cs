@@ -116,6 +116,8 @@ internal static class Endpoints
         });
         pool.MapGet("/status", (string key, ProjectScopes p, PoolOperations o, CancellationToken ct) => o.StatusAsync(p.Get(key), ct));
         pool.MapPut("/settings", (string key, PoolSettingsBody b, ProjectScopes p, PoolOperations o) => o.SaveSettings(p.Get(key), b));
+        pool.MapPut("/settings/override", (string key, PoolOverrideBody b, ProjectScopes p, PoolOperations o) => o.SaveOverride(p.Get(key), b));
+        pool.MapDelete("/settings/override", (string key, ProjectScopes p, PoolOperations o) => o.ClearOverride(p.Get(key)));
         pool.MapPost("/decisions/{id:long}/revert", (string key, long id, ProjectScopes p, PoolOperations o) => new { reverted = o.RevertDecision(p.Get(key), id) });
         pool.MapPost("/parked/{id}/unpark", (string key, string id, ProjectScopes p, PoolOperations o) => new { unparked = o.Unpark(p.Get(key), id) });
         pool.MapPost("/pause", (string key, ProjectScopes p, PoolOperations o, CancellationToken ct) => o.PauseAsync(p.Get(key), ct));
