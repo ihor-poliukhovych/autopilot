@@ -132,7 +132,7 @@ export async function render({ view, key }) {
     put(heroCard,
       h('div', { class: 'pool-title' },
         h('div', { class: 'pool-title-text' }, h('h1', {}, 'Pool'),
-          h('div', { class: 'pool-sub' }, pill(p), started ? h('span', {}, `Started ${clock(started)}`) : h('span', {}, `${items.length} ${items.length === 1 ? 'task' : 'tasks'} in the pool`), h('code', { class: 'pool-branch' }, branch))),
+          h('div', { class: 'pool-sub' }, pill(p), started ? h('span', {}, `Started ${clock(started)}`) : h('span', {}, `${(status?.queue ?? items).length} ${(status?.queue ?? items).length === 1 ? 'task' : 'tasks'} in the pool`), h('code', { class: 'pool-branch' }, branch))),
         h('div', { class: 'pool-actions' }, action,
           kebab('More pool actions', [
             { label: 'Refresh', run: () => refresh(true) },
