@@ -27,7 +27,18 @@ public sealed record PoolConfig
 
     public IntegrationConfig Integration { get; init; } = new();
 
+    public PoolRetryConfig Retry { get; init; } = new();
+
     public const int MaxConcurrency = 4;
+}
+
+public sealed record PoolRetryConfig
+{
+    /// <summary>
+    /// When true (the default) a retry continues from the previous attempt's kept branch, merged with the
+    /// current base, and its prompt carries the earlier findings. False starts every attempt clean.
+    /// </summary>
+    public bool Continue { get; init; } = true;
 }
 
 public sealed record PoolMasterConfig

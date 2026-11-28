@@ -1,6 +1,7 @@
 import { get, post, put, del } from './api.js';
 import { h, clear, put as place, toast, badge, field, ask, ago } from './dom.js';
 import { overrides } from './poolstatus.js';
+import { mergesList } from './poolintegration.js';
 
 const base = key => `/projects/${encodeURIComponent(key)}/pool`;
 
@@ -73,7 +74,7 @@ function settingsPanel(key, s, status, schedule, save, reload) {
   };
 
   // A number field saves when it loses focus or Enter is pressed, and says so if the value is not allowed.
-  const number = (id, current, min, max, placeholder, allowEmpty, apply) => {
+  const number = (id, current, min, max, placeholder, allowEmpty, apply, unit) => {
     const input = h('input', { id, type: 'number', inputmode: 'numeric', min, max, step: 1, placeholder, class: 'pool-num', 'aria-describedby': id + '-hint' });
     input.value = current ?? '';
     const commit = () => {
@@ -86,10 +87,11 @@ function settingsPanel(key, s, status, schedule, save, reload) {
     };
     input.addEventListener('change', commit);
     input.addEventListener('keydown', ev => { if (ev.key === 'Enter') commit(); });
-    return input;
+    // Every number field has the same box; a unit is a suffix inside it, right aligned.
+    return h('span', { class: 'pool-numbox' }, input, unit ? h('span', { class: 'pool-unit', 'aria-hidden': 'true' }, unit) : null);
   };
   const maxRuns = number('set-max-runs', s.maxAgentRuns, 1, 100000, 'none', true, n => ({ maxAgentRuns: n }));
-  const stopAt = number('set-stop-at', s.stopAtUsagePercent, 1, 100, '80', false, n => ({ stopAtUsagePercent: n }));
+  const stopAt = number('set-stop-at', s.stopAtUsagePercent, 1, 100, '80', false, n => ({ stopAtUsagePercent: n }), '%');
 
   const i = status.integration;
   const integrationHint = !i.enabled
@@ -111,7 +113,7 @@ function settingsPanel(key, s, status, schedule, save, reload) {
       setting('set-master', 'Pool master', 'Answers questions when running without a person.', toggle('set-master', s.masterEnabled, v => ({ masterEnabled: v }))),
       setting('set-max-runs', 'Most agent runs per day', defaultHint('maxAgentRuns') ?? 'Empty means no limit.', maxRuns, isChanged('maxAgentRuns')),
       setting('set-stop-at', 'Stop at usage limit', defaultHint('stopAtUsagePercent', '%') ?? 'Pauses at this share of the limit.',
-        h('span', { class: 'pool-with-unit' }, stopAt, h('span', { class: 'muted', 'aria-hidden': 'true' }, '%')), isChanged('stopAtUsagePercent')),
+        stopAt, isChanged('stopAtUsagePercent')),
       setting('set-integration', 'Integration branch', integrationHint, toggle('set-integration', s.integrationEnabled, v => ({ integrationEnabled: v }))),
       sched.row),
     sched.form);
@@ -159,7 +161,7 @@ function finalPrCard(key, status, reload) {
   return h('section', { class: 'card stack', 'data-part': 'final-pr' },
     h('h2', {}, 'Integration branch'),
     h('p', {}, h('code', {}, i.branch), ` collects the finished tasks, each merged after build and tests passed. You merge one final PR into ${i.baseBranch}.`),
-    i.merges.length ? h('ul', {}, i.merges.map(m => h('li', {}, `#${m.workItemId} (${m.taskBranch}) ${ago(m.mergedAt)}`))) : null,
+    mergesList(i.merges),
     i.finalPrUrl ? h('p', {}, 'Final PR (draft): ', h('a', { href: i.finalPrUrl, target: '_blank', rel: 'noopener noreferrer' }, i.finalPrUrl)) : null,
     !i.finalPrUrl ? h('div', { class: 'row' }, h('button', { type: 'button', onclick: async () => {
       const ok = await ask({ title: 'Open the final PR?', confirm: 'Open as draft', body: [
@@ -176,13 +178,13 @@ function scheduleBlock(key, s, schedule, reload) {
   const pad = n => String(n).padStart(2, '0');
   const today = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
   const date = h('input', { type: 'date', value: today, required: true });
-  const time = h('input', { type: 'time', value: '02:00', required: true, style: 'width:8rem' });
+  const time = h('input', { type: 'time', value: '02:00', required: true });
   const repeat = h('select', {}, [['none', 'Once'], ['daily', 'Every day'], ['weekdays', 'Weekdays'], ['days', 'On chosen days']].map(([v, t]) => h('option', { value: v }, t)));
   const days = DAYS.map(([v, t]) => ({ v, box: h('input', { type: 'checkbox', value: v }), t }));
-  const dayRow = h('div', { class: 'row', hidden: true }, days.map(d => h('label', { class: 'row' }, d.box, d.t)));
+  const dayRow = h('div', { class: 'pool-sched-days', hidden: true }, days.map(d => h('label', { class: 'row' }, d.box, d.t)));
   repeat.addEventListener('change', () => { dayRow.hidden = repeat.value !== 'days'; });
-  const until = h('input', { type: 'time', style: 'width:8rem' });
-  const limit = h('input', { type: 'number', min: 1, step: 1, placeholder: 'all', style: 'width:6rem' });
+  const until = h('input', { type: 'time' });
+  const limit = h('input', { type: 'number', min: 1, step: 1, placeholder: 'all' });
   const unattended = h('input', { type: 'checkbox', checked: s.unattended });
   const zone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
@@ -198,13 +200,20 @@ function scheduleBlock(key, s, schedule, reload) {
     };
   };
 
-  const form = h('div', { class: 'pool-sched stack', id: 'pool-schedule-form', hidden: true },
-    scheduleSummary(key, schedule, reload),
-    h('div', { class: 'row' }, field('Date', date), field(`Time (${zone})`, time), field('Repeat', repeat)),
+  const cancelRun = () => h('button', { type: 'button', class: 'danger sm', onclick: async () => {
+    const ok = await ask({ title: 'Cancel the scheduled run?', confirm: 'Cancel it', danger: true, body: h('p', {}, 'The job is removed from the system scheduler.') });
+    if (!ok) return;
+    try { await del(`${base(key)}/schedule`); toast('Cancelled.'); await reload(); } catch (e) { toast(e.message, true); }
+  } }, 'Cancel the run');
+  const form = h('div', { class: 'pool-sched', id: 'pool-schedule-form', hidden: true },
+    schedule.set ? scheduleDetails(schedule, cancelRun) : null,
+    h('div', { class: 'pool-sched-grid' },
+      field('Date', date), field(`Time (${zone})`, time), field('Repeat', repeat), field('Stop starting tasks at (optional)', until),
+      field('Most tasks (optional)', limit),
+      h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Questions'), h('span', { class: 'pool-sched-check' }, unattended, h('span', {}, 'Run without a person')))),
     dayRow,
-    h('div', { class: 'row' }, field('Stop starting tasks at', until, 'Optional.'), field('Most tasks', limit),
-      h('label', { class: 'row' }, unattended, h('span', {}, 'Without a person'))),
-    h('button', { type: 'button', onclick: async () => {
+    h('p', { class: 'hint' }, 'It runs on this computer, as your user. Results are drafts; nothing is merged.'),
+    h('div', { class: 'pool-sched-actions' }, h('button', { type: 'button', class: 'primary', onclick: async () => {
       try {
         const plan = await post(`${base(key)}/schedule/plan`, body());
         const ok = await ask({
@@ -219,30 +228,32 @@ function scheduleBlock(key, s, schedule, reload) {
         toast('Scheduled.'); if (result.note) toast(result.note, true);
         await reload();
       } catch (e) { toast(e.message, true); }
-    } }, 'Review and schedule…'));
+    } }, 'Review and schedule'),
+      h('button', { type: 'button', class: 'secondary', onclick: () => closeForm() }, 'Cancel')));
 
+  const closeForm = () => { form.hidden = true; open.setAttribute('aria-expanded', 'false'); open.focus(); };
   const open = h('button', { type: 'button', class: 'sm', 'aria-expanded': 'false', 'aria-controls': 'pool-schedule-form',
     onclick: () => { form.hidden = !form.hidden; open.setAttribute('aria-expanded', String(!form.hidden)); } }, schedule.set ? 'Change…' : 'Set…');
-  const state = schedule.set
-    ? `Runs ${schedule.plan.when}${schedule.next ? `. Next: ${new Date(schedule.next).toLocaleString()}` : ''}`
-    : 'Not scheduled';
   const row = h('div', { class: 'pool-set' },
-    h('div', { class: 'what' }, h('label', { id: 'set-schedule-label' }, 'Schedule'), h('p', { class: 'hint', id: 'set-schedule-hint' }, state)),
+    h('div', { class: 'what' }, h('label', { id: 'set-schedule-label' }, 'Schedule'), h('p', { class: 'hint', id: 'set-schedule-hint' }, scheduleSummaryText(schedule))),
     h('div', { class: 'control' }, open));
   return { row, form };
 }
 
-function scheduleSummary(key, s, reload) {
-  if (!s.set) return h('p', { class: 'muted' }, 'Nothing is scheduled.');
+/** The one-line summary in the Schedule row: 'Not scheduled' or e.g. 'Every day 02:00, stops starting at 06:00'. */
+export function scheduleSummaryText(schedule) {
+  if (!schedule.set) return 'Not scheduled';
+  const p = schedule.plan;
+  const when = String(p.when ?? '');
+  return `${when.charAt(0).toUpperCase()}${when.slice(1)}${p.until ? `, stops starting at ${p.until}` : ''}`;
+}
+
+/** Inside the open form, when a run is set: what is installed and the button that removes it. */
+function scheduleDetails(s, cancelRun) {
   const p = s.plan;
-  return h('div', { class: 'banner info' },
-    h('p', {}, `Runs ${p.when}${p.limit ? `, at most ${p.limit} tasks` : ''}${p.unattended ? ', without a person' : ''}${p.until ? `, stopping at ${p.until}` : ''}. `,
+  return h('div', { class: 'pool-sched-now' },
+    h('p', { class: 'hint' }, `${p.limit ? `At most ${p.limit} tasks. ` : ''}${p.unattended ? 'Without a person. ' : ''}`,
       s.next ? `Next: ${new Date(s.next).toLocaleString()}. ` : 'No later run. ',
       s.installedInOs ? badge('installed', 'ok') : badge('missing in the system scheduler: schedule it again', 'warn')),
-    h('div', { class: 'row' },
-      h('button', { type: 'button', class: 'danger', onclick: async () => {
-        const ok = await ask({ title: 'Cancel the scheduled run?', confirm: 'Cancel it', danger: true, body: h('p', {}, 'The job is removed from the system scheduler.') });
-        if (!ok) return;
-        try { await del(`${base(key)}/schedule`); toast('Cancelled.'); await reload(); } catch (e) { toast(e.message, true); }
-      } }, 'Cancel the run')));
+    cancelRun());
 }

@@ -194,10 +194,32 @@ public sealed class GitClient
     public Task<string> ReadFileAtAsync(string commit, string path, CancellationToken ct = default) =>
         RunCheckedAsync(RepositoryPath, ["cat-file", "blob", $"{commit}:{path.Replace('\\', '/')}"], ct);
 
+    /// <summary>
+    /// On Windows, runs <c>git config --local core.longpaths true</c> in the repository so later git commands in
+    /// its worktrees (for example <c>git add --all</c>) do not fail with "Filename too long". Local config only,
+    /// never global or system. Setting it again is harmless. Does nothing on other platforms.
+    /// Returns true when the setting was written.
+    /// </summary>
+    public Task<bool> EnsureLongPathsAsync(CancellationToken ct = default) =>
+        EnsureLongPathsAsync(OperatingSystem.IsWindows(), ct);
+
+    /// <summary>Same as <see cref="EnsureLongPathsAsync(CancellationToken)"/> with the platform given (for tests).</summary>
+    public async Task<bool> EnsureLongPathsAsync(bool isWindows, CancellationToken ct = default)
+    {
+        if (!isWindows)
+        {
+            return false;
+        }
+
+        await RunCheckedAsync(RepositoryPath, ["config", "--local", "core.longpaths", "true"], ct).ConfigureAwait(false);
+        return true;
+    }
+
     /// <summary>Runs <c>git worktree add -b &lt;branch&gt; &lt;path&gt; &lt;base&gt;</c>.</summary>
     public async Task AddWorktreeAsync(string path, string newBranch, string baseRevision, CancellationToken ct = default)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        await EnsureLongPathsAsync(ct).ConfigureAwait(false);
         await RunCheckedAsync(RepositoryPath, ["-c", "core.longpaths=true", "worktree", "add", "-b", newBranch, path, baseRevision], ct).ConfigureAwait(false);
     }
 
@@ -249,6 +271,7 @@ public sealed class GitClient
     public async Task AddBranchWorktreeAsync(string path, string branch, CancellationToken ct = default)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        await EnsureLongPathsAsync(ct).ConfigureAwait(false);
         await RunCheckedAsync(RepositoryPath, ["-c", "core.longpaths=true", "worktree", "add", path, branch], ct).ConfigureAwait(false);
     }
 
@@ -281,6 +304,7 @@ public sealed class GitClient
     public async Task AddDetachedWorktreeAsync(string path, string revision, CancellationToken ct = default)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+        await EnsureLongPathsAsync(ct).ConfigureAwait(false);
         await RunCheckedAsync(RepositoryPath, ["-c", "core.longpaths=true", "worktree", "add", "--detach", path, revision], ct).ConfigureAwait(false);
     }
 

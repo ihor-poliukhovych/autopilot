@@ -186,6 +186,13 @@ public static class ConfigLoader
         problems.AddRange(Autopilot.Core.Git.NamingTemplates.Validate("commitTemplate", config.CommitTemplate, requireId: false));
         problems.AddRange(Autopilot.Core.Git.NamingTemplates.Validate("prTitleTemplate", config.PrTitleTemplate, requireId: false));
 
+        if (config.TargetBranchTemplate is not null
+            && (string.IsNullOrWhiteSpace(config.TargetBranchTemplate)
+                || !Autopilot.Core.Git.TargetBranchResolver.HasWildcardOrPlaceholder(config.TargetBranchTemplate)))
+        {
+            problems.Add($"targetBranchTemplate is \"{config.TargetBranchTemplate}\". It needs a wildcard (*) or a placeholder such as {{major}} or {{minor}}, for example \"release/release-{{major}}.{{minor}}.*\". Remove it to take no target from the task.");
+        }
+
         ValidatePool(config, problems);
 
         if (config.Gate is null)
@@ -197,6 +204,10 @@ public static class ConfigLoader
             AddIfNotPositive(problems, "gate.maxFilesChanged", config.Gate.MaxFilesChanged);
             AddIfNotPositive(problems, "gate.maxSourceLinesChanged", config.Gate.MaxSourceLinesChanged);
             AddIfNotPositive(problems, "gate.maxTestLinesChanged", config.Gate.MaxTestLinesChanged);
+            if (!GateScopes.All.Contains(config.Gate.Scope ?? string.Empty, StringComparer.Ordinal))
+            {
+                problems.Add($"gate.scope is \"{config.Gate.Scope}\". Use one of: {string.Join(", ", GateScopes.All)}.");
+            }
         }
 
         if (config.Roles is null)
@@ -311,6 +322,11 @@ public static class ConfigLoader
             {
                 problems.Add("pool.onFailure.pauseMinutes must be at least 1.");
             }
+        }
+
+        if (pool.Retry is null)
+        {
+            problems.Add("pool.retry is missing. Remove it to use the defaults.");
         }
 
         foreach (var category in pool.AlwaysAsk ?? [])

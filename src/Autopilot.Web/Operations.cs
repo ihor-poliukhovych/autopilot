@@ -55,6 +55,11 @@ public sealed record TaskTreeNode(int Id, string Title, int? ParentId, bool Clos
     [System.Text.Json.Serialization.JsonIgnore]
     internal int Bucket { get; init; }
 
+    /// <summary>The status word of the node: done, in progress, needs you or not started. A group takes it from its leaves.</summary>
+    public string Status { get; init; } = StatusWords[3];
+
+    internal static readonly string[] StatusWords = ["done", "in progress", "needs you", "not started"];
+
     /// <summary>How many leaf tasks of this subtree fall in a bucket (0 done, 1 in progress, 2 needs you, 3 not started).</summary>
     internal int Leaf(int bucket) => Counts is null
         ? (Bucket == bucket ? 1 : 0)
@@ -173,12 +178,14 @@ public sealed class TaskOperations(WebUiOptions options)
             if (children.Count == 0)
             {
                 var bucket = t.Closed ? 0 : active.Contains(t.Id) ? 1 : needsYou.Contains(t.Id) ? 2 : 3;
-                return new TaskTreeNode(t.Number, t.Title, t.ParentNumber, t.Closed, node.Kind, null, []) { Bucket = bucket };
+                return new TaskTreeNode(t.Number, t.Title, t.ParentNumber, t.Closed, node.Kind, null, []) { Bucket = bucket, Status = TaskTreeNode.StatusWords[bucket] };
             }
 
             var counts = new TaskTreeCounts(
                 children.Sum(c => c.Leaf(0)), children.Sum(c => c.Leaf(1)), children.Sum(c => c.Leaf(2)), children.Sum(c => c.Leaf(3)));
-            return new TaskTreeNode(t.Number, t.Title, t.ParentNumber, t.Closed, node.Kind, counts, children);
+            var total = counts.Done + counts.InProgress + counts.NeedsYou + counts.NotStarted;
+            var word = counts.Done == total ? 0 : counts.InProgress > 0 ? 1 : counts.NeedsYou > 0 ? 2 : 3;
+            return new TaskTreeNode(t.Number, t.Title, t.ParentNumber, t.Closed, node.Kind, counts, children) { Status = TaskTreeNode.StatusWords[word] };
         }
 
         return roots.Select(Build).ToList();
@@ -363,7 +370,17 @@ public sealed record PoolSettingsBody(bool? Unattended, int? Concurrency, bool? 
 
 public sealed record PoolSettingsView(
     bool Unattended, int Concurrency, int MaxConcurrency, bool MasterEnabled, bool IntegrationEnabled,
-    int? MaxAgentRuns, int StopAtUsagePercent, IReadOnlyList<string> AlwaysAsk, int Retries);
+    int? MaxAgentRuns, int StopAtUsagePercent, IReadOnlyList<string> AlwaysAsk, int Retries)
+{
+    /// <summary>Effective value and source ("pool" or "project") of the five settings a pool override can change.</summary>
+    public EffectivePoolSettings? Effective { get; init; }
+
+    /// <summary>The stored pool-level override; null when the project has none.</summary>
+    public PoolOverride? Override { get; init; }
+}
+
+/// <summary>The pool-level override to store. A null field clears that field's override.</summary>
+public sealed record PoolOverrideBody(bool? Unattended, int? Concurrency, bool? MasterEnabled, int? BudgetStopPercent, bool? IntegrationEnabled);
 
 public sealed record PoolSlotView(string Id, string Title, string State, string? Detail, DateTimeOffset Since);
 
@@ -549,19 +566,21 @@ public sealed class PoolOperations(WebUiOptions options)
             return new PoolQueueTaskView(id, entry?.Title ?? id, Readiness(id, entry, parkedIds, inPoolSet));
         }).ToList();
 
+        var slotList = state.Slots();
+        var currentPause = state.CurrentPause();
+        var personPause = PersonPauseStatus(currentPause, slotList);
         return new PoolStatusView(
-            new PoolSettingsView(pool.Unattended, pool.Concurrency, Autopilot.Core.Config.PoolConfig.MaxConcurrency, pool.Master.Enabled, pool.Integration.Enabled,
-                pool.Budget.MaxAgentRuns, pool.Budget.StopAtUsagePercent, pool.AlwaysAsk, pool.OnFailure.Retries),
-            [.. state.Slots().Select(s => new PoolSlotView(s.WorkItemId, titles.GetValueOrDefault(s.WorkItemId, s.WorkItemId), s.State, s.Detail, s.Since))],
-            state.CurrentPause(),
+            SettingsView(scope, pool),
+            [.. slotList.Select(s => new PoolSlotView(s.WorkItemId, titles.GetValueOrDefault(s.WorkItemId, s.WorkItemId), s.State, s.Detail, s.Since))],
+            currentPause,
             parked,
             state.Decisions(50),
             state.RevertedCount(),
             integration,
             scope.Lock.Holder(scope.Project.Key) is not null)
         {
-            Status = snapshot.State.Status.ToString(),
-            SubStatus = snapshot.State.Sub.ToString(),
+            Status = personPause?.Status ?? snapshot.State.Status.ToString(),
+            SubStatus = personPause?.SubStatus ?? snapshot.State.Sub.ToString(),
             Progress = new PoolRunProgressView(snapshot.Progress.Done, snapshot.Progress.Total, snapshot.Progress.Parked),
             Timeline = [.. runEvents.Select(e => new PoolTimelineEntryView(e.At, e.Event.ToString(), e.Detail) { TaskId = e.TaskId })],
             Queue = queue,
@@ -603,9 +622,44 @@ public sealed class PoolOperations(WebUiOptions options)
         if (body.StopAtUsagePercent is { } s) { budget["stopAtUsagePercent"] = s; }
         if (budget.Count > 0) { pool["budget"] = budget; }
         var saved = pool.Count == 0 ? scope.Settings.Read() : scope.Settings.Save(new System.Text.Json.Nodes.JsonObject { ["pool"] = pool });
-        var p = saved.Config.Pool;
-        return new PoolSettingsView(p.Unattended, p.Concurrency, Autopilot.Core.Config.PoolConfig.MaxConcurrency, p.Master.Enabled, p.Integration.Enabled,
-            p.Budget.MaxAgentRuns, p.Budget.StopAtUsagePercent, p.AlwaysAsk, p.OnFailure.Retries);
+        return SettingsView(scope, saved.Config.Pool);
+    }
+
+    /// <summary>Stores the pool-level override (a null field is cleared) and returns the settings with their sources.</summary>
+    public PoolSettingsView SaveOverride(ProjectScope scope, PoolOverrideBody body)
+    {
+        var state = new PoolStateStore(scope.Workspace, scope.Project.Key);
+        if (body.Concurrency is { } c && (c < 1 || c > Autopilot.Core.Config.PoolConfig.MaxConcurrency))
+        {
+            throw new ArgumentException($"Concurrency must be 1 to {Autopilot.Core.Config.PoolConfig.MaxConcurrency}.");
+        }
+
+        if (body.BudgetStopPercent is { } b && (b < 1 || b > 100))
+        {
+            throw new ArgumentException("The budget stop percent must be 1 to 100.");
+        }
+
+        state.SetOverride(new PoolOverride(body.Unattended, body.Concurrency, body.MasterEnabled, body.BudgetStopPercent, body.IntegrationEnabled));
+        return SettingsView(scope, ReadPool(scope));
+    }
+
+    public PoolSettingsView ClearOverride(ProjectScope scope)
+    {
+        new PoolStateStore(scope.Workspace, scope.Project.Key).ClearOverride();
+        return SettingsView(scope, ReadPool(scope));
+    }
+
+    private static PoolSettingsView SettingsView(ProjectScope scope, Autopilot.Core.Config.PoolConfig p)
+    {
+        var overrides = new PoolStateStore(scope.Workspace, scope.Project.Key).Override();
+        var effective = PoolSettingsResolver.Resolve(p, overrides);
+        return new PoolSettingsView(effective.Unattended.Value, effective.Concurrency.Value, Autopilot.Core.Config.PoolConfig.MaxConcurrency,
+            effective.MasterEnabled.Value, effective.IntegrationEnabled.Value,
+            p.Budget.MaxAgentRuns, effective.BudgetStopPercent.Value, p.AlwaysAsk, p.OnFailure.Retries)
+        {
+            Effective = effective,
+            Override = overrides,
+        };
     }
 
     /// <summary>Undoes a decision of the pool master: its answer leaves the task, the task goes back in the pool.</summary>
@@ -639,6 +693,22 @@ public sealed class PoolOperations(WebUiOptions options)
 
         return removed;
     }
+
+    /// <summary>Pauses the pool at a person's request. Idempotent; returns the same status as the other pool endpoints.</summary>
+    public Task<PoolStatusView> PauseAsync(ProjectScope scope, CancellationToken ct)
+    {
+        new PoolStateStore(scope.Workspace, scope.Project.Key).PauseByPerson(DateTimeOffset.UtcNow);
+        return StatusAsync(scope, ct);
+    }
+
+    /// <summary>
+    /// The status and sub-status a person pause shows: "Paused" with "finishing current tasks" while a task still
+    /// runs, and no sub-status once none does. Null when the pause is not a person pause.
+    /// </summary>
+    public static (string Status, string SubStatus)? PersonPauseStatus(PoolPause? pause, IEnumerable<PoolSlot> slots) =>
+        pause is not null && PoolStateStore.IsPersonPause(pause)
+            ? ("Paused", slots.Any(s => s.State == "running") ? PoolStateStore.FinishingCurrentTasks : nameof(PoolRunSubStatus.None))
+            : null;
 
     public bool Resume(ProjectScope scope) => new PoolStateStore(scope.Workspace, scope.Project.Key).Resume();
 

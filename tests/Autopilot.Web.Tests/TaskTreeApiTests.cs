@@ -75,6 +75,82 @@ public sealed class TaskTreeApiTests
         Assert.True(Node(tree, 4).GetProperty("closed").GetBoolean());
         Assert.Equal(JsonValueKind.Null, leaf.GetProperty("counts").ValueKind);
         Assert.Equal(JsonValueKind.Null, Node(tree, 7).GetProperty("parentId").ValueKind);
+        Assert.Equal("done", Node(tree, 4).GetProperty("status").GetString());
+        Assert.Equal("in progress", Node(tree, 5).GetProperty("status").GetString());
+        Assert.Equal("needs you", Node(tree, 3).GetProperty("status").GetString());
+        Assert.Equal("not started", leaf.GetProperty("status").GetString());
+        Assert.Equal("in progress", root.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public void Tasks_tab_renders_the_tree_with_chevrons_progress_and_tokens_only()
+    {
+        var dir = AppContext.BaseDirectory;
+        var root = dir[..dir.IndexOf("tests", StringComparison.Ordinal)];
+        var js = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "js", "tasks.js"));
+        var css = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "app.css"));
+        Assert.Contains("/tasks/tree", js);
+        Assert.Contains("TASKS AND GROUPS / PROGRESS", js);
+        Assert.Contains("tree-chevron", js);
+        Assert.Contains("`${c.done} of ${total}`", js);
+        Assert.Contains("expanded.set(node.id", js);
+        Assert.Contains("node.status", js);
+        Assert.Matches(@"\.tasks-layout\s*\{\s*--left-col:\s*420px", css);
+        Assert.Matches(@"\.tree-progress-fill\s*\{[^}]*var\(--ok\)", css);
+        var treeCss = string.Join("\n", css.Split('\n').Where(l => l.Contains(".tree-") || l.Contains(".task-tree")));
+        Assert.DoesNotMatch(@"#[0-9a-fA-F]{3,6}\b", treeCss);
+    }
+
+    [Fact]
+    public void Tasks_tab_has_row_checkboxes_a_selection_bar_bulk_move_pool_add_and_drag_to_group()
+    {
+        var dir = AppContext.BaseDirectory;
+        var root = dir[..dir.IndexOf("tests", StringComparison.Ordinal)];
+        var js = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "js", "tasks.js"));
+        var css = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "app.css"));
+        Assert.Contains("type: 'checkbox', class: 'tree-check'", js);
+        Assert.Contains("ev.stopPropagation(); bulk.toggle", js);
+        Assert.Contains("`${selected.size} selected`", js);
+        Assert.Contains("'Move to group...'", js);
+        Assert.Contains("'Add to the pool'", js);
+        Assert.Contains("'Close'", js);
+        Assert.Contains("bar.hidden = selected.size === 0", js);
+        Assert.Contains("/parent`, { parentId }", js);
+        Assert.Contains("/pool`, { id: String(id) }", js);
+        Assert.DoesNotContain("{ id: Number(id) }", js);
+        Assert.Contains("groups.map(g => h('option'", js);
+        Assert.Contains("draggable: 'true'", js);
+        Assert.Contains("ondrop:", js);
+        Assert.Contains("bulk.drop(", js);
+        Assert.Contains("[hidden]", css);
+    }
+
+    [Fact]
+    public void Tasks_tab_shows_a_group_panel_with_children_and_three_buttons()
+    {
+        var dir = AppContext.BaseDirectory;
+        var root = dir[..dir.IndexOf("tests", StringComparison.Ordinal)];
+        var js = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "js", "tasks.js"));
+        var css = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "app.css"));
+        Assert.Contains("group && group.counts", js);
+        Assert.Contains("renderGroupPanel(", js);
+        Assert.Contains("data-part': 'group-detail'", js);
+        Assert.Contains("get(`${base(key)}/tasks/${group.id}`)", js);
+        Assert.Contains("`${c.done} of ${total}`", js);
+        Assert.Contains("data-part': 'group-children'", js);
+        Assert.Contains("group.children.length", js);
+        Assert.Contains("onclick: () => select(ch.id)", js);
+        Assert.Contains("'+ New task in this group'", js);
+        Assert.Contains("'+ New sub-group'", js);
+        Assert.Contains("'Move group...'", js);
+        Assert.Contains("post(`${base(key)}/tasks`, { title, body, labels: [] })", js);
+        Assert.Contains("/parent`, { parentId: group.id }", js);
+        Assert.Contains("g.id !== group.id && !excluded.has(g.id)", js);
+        Assert.Contains("/parent`, { parentId: Number(picker.value) }", js);
+        Assert.Contains("toast(e.message, true)", js);
+        Assert.Contains(".group-child", css);
+        var groupCss = string.Join("\n", css.Split('\n').Where(l => l.Contains(".group-")));
+        Assert.DoesNotMatch(@"#[0-9a-fA-F]{3,6}\b", groupCss);
     }
 
     [Fact]

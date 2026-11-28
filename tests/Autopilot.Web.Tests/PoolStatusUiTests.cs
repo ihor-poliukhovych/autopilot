@@ -127,7 +127,7 @@ public sealed class PoolStatusUiTests
         Assert.Contains("app-left pool-settings stack' }, extra.element", js);
         Assert.Contains("heroCard, h('div', { class: 'pool-main' }, queue, events), extra.right", js);
         Assert.Matches(@"\.pool-layout\s*\{[^}]*var\(--left-col\)", css);
-        Assert.Matches(@"--left-col:\s*420px", css);
+        Assert.Matches(@"--left-col:\s*340px", css);
         // The settings are one details element: closed on a phone, one line per setting.
         Assert.Contains("h('details', { class: 'card pool-panel', open: true", unattended);
         Assert.Contains("if (phone.matches && details) details.open = false", js);
@@ -144,6 +144,99 @@ public sealed class PoolStatusUiTests
         Assert.Matches(@"\.pool-events\s*\{\s*order: 2", phone);
         Assert.Matches(@"\.pool-queue\s*\{\s*order: 3", phone);
         Assert.Matches(@"\.pool-layout \.app-left > \*\s*\{\s*order: 4", phone);
+    }
+
+    [Fact]
+    public void Integration_block_shows_five_newest_collapsed_and_all_when_toggled()
+    {
+        var js = Wwwroot("js/poolintegration.js");
+        Assert.Contains("COLLAPSED_COUNT = 5", js);
+        Assert.Contains("sorted.slice(0, COLLAPSED_COUNT)", js);
+        Assert.Contains("new Date(b.mergedAt) - new Date(a.mergedAt)", js);
+        Assert.Contains("sorted.length > COLLAPSED_COUNT", js);
+        Assert.Contains("`Show all ${sorted.length}`", js);
+        Assert.Contains("'Show fewer'", js);
+        Assert.Contains("tasks'} merged", js);
+        Assert.Contains("#${m.workItemId} (${m.taskBranch})", js);
+        Assert.Contains("mergesList(i.merges)", Wwwroot("js/poolunattended.js"));
+        var css = Wwwroot("app.css");
+        var block = css[css.IndexOf("/* Integration branch block", StringComparison.Ordinal)..css.IndexOf("/* Phone and tablet: status first", StringComparison.Ordinal)];
+        Assert.DoesNotContain("max-height", block);
+        Assert.DoesNotContain("overflow", block);
+    }
+
+    [Fact]
+    public void Integration_block_groups_the_expanded_list_by_day()
+    {
+        var js = Wwwroot("js/poolintegration.js");
+        Assert.Contains("'Today'", js);
+        Assert.Contains("'Yesterday'", js);
+        Assert.Contains("toLocaleDateString", js);
+        Assert.Contains("groupByDay(sorted)", js);
+        Assert.Contains("getFullYear(), d.getMonth(), d.getDate()", js);
+    }
+
+    [Fact]
+    public void Integration_block_remembers_the_choice_and_defaults_to_collapsed()
+    {
+        var js = Wwwroot("js/poolintegration.js");
+        Assert.Contains("localStorage.getItem(EXPANDED_KEY) === 'true'", js);
+        Assert.Contains("localStorage.setItem(EXPANDED_KEY", js);
+        Assert.Contains("catch { return false; }", js);
+    }
+
+    [Fact]
+    public void A_unit_is_a_suffix_inside_the_number_field_wrapper()
+    {
+        var js = Wwwroot("js/poolunattended.js");
+        Assert.Contains("h('span', { class: 'pool-numbox' }, input, unit ? h('span', { class: 'pool-unit'", js);
+        Assert.Contains("n => ({ stopAtUsagePercent: n }), '%')", js);
+        Assert.DoesNotContain("pool-with-unit", js);
+    }
+
+    [Fact]
+    public void Number_fields_share_one_box_and_the_unit_is_right_aligned()
+    {
+        var css = Wwwroot("app.css");
+        Assert.Contains(".pool-numbox { display: inline-flex; align-items: center; box-sizing: border-box; width: 6rem; height: var(--h-control);", css);
+        Assert.Contains("text-align: right", css[css.IndexOf(".pool-numbox input.pool-num", StringComparison.Ordinal)..]);
+        Assert.Contains(".pool-unit {", css);
+        Assert.Contains(".pool-set { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 48px;", css);
+    }
+
+    [Fact]
+    public void The_schedule_form_is_a_two_column_grid_that_becomes_one_column_on_a_phone()
+    {
+        var css = Wwwroot("app.css");
+        Assert.Contains(".pool-sched-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));", css);
+        var phone = css[css.IndexOf("@media (max-width: 640px)", css.IndexOf(".pool-sched-grid", StringComparison.Ordinal), StringComparison.Ordinal)..];
+        Assert.Contains(".pool-sched-grid { grid-template-columns: minmax(0, 1fr); }", phone);
+        Assert.Contains(".pool-sched .field select { box-sizing: border-box; width: 100%; height: var(--h-control);", css.Replace(".pool-sched .field input:not([type=\"checkbox\"]), ", ""));
+    }
+
+    [Fact]
+    public void The_schedule_form_has_one_help_line_a_primary_and_a_secondary_button_and_marks_optional_once()
+    {
+        var js = Wwwroot("js/poolunattended.js");
+        Assert.DoesNotContain("Nothing is scheduled.", js);
+        Assert.Contains("'Review and schedule')", js);
+        Assert.Contains("class: 'primary'", js);
+        Assert.Contains("class: 'secondary', onclick: () => closeForm() }, 'Cancel')", js);
+        Assert.Contains("'Stop starting tasks at (optional)'", js);
+        Assert.Contains("'Most tasks (optional)'", js);
+        Assert.DoesNotContain("'Optional.'", js);
+        Assert.Equal(1, js.Split("It runs on this computer, as your user. Results are drafts").Length - 1);
+    }
+
+    [Fact]
+    public void The_schedule_row_says_Not_scheduled_when_unset_and_the_plan_when_set()
+    {
+        var js = Wwwroot("js/poolunattended.js");
+        Assert.Contains("export function scheduleSummaryText(schedule)", js);
+        Assert.Contains("if (!schedule.set) return 'Not scheduled';", js);
+        // 'every day 02:00' with an until of 06:00 reads 'Every day 02:00, stops starting at 06:00'.
+        Assert.Contains("when.charAt(0).toUpperCase()}${when.slice(1)}${p.until ? `, stops starting at ${p.until}` : ''}", js);
+        Assert.Contains("scheduleSummaryText(schedule)", js);
     }
 
     [Fact]

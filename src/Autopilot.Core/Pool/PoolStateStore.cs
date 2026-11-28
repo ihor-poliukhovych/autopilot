@@ -82,6 +82,45 @@ public sealed class PoolStateStore(Workspace.Workspace workspace, string project
     private static PoolDecision ReadDecision(SqliteDataReader r) =>
         new(r.GetInt64(0), r.GetString(1), r.GetString(2), r.GetString(3), r.GetString(4), r.GetString(5), Db.StringOrNull(r, 6), Db.ParseStamp(r.GetString(7)), Db.ParseStampOrNull(r, 8));
 
+    // ---------- pool-level overrides of the project's settings ----------
+
+    /// <summary>The pool-level override of this project, or null when it has no row.</summary>
+    public PoolOverride? Override()
+    {
+        using var connection = workspace.Open();
+        return Db.Query(connection,
+            r => new PoolOverride(Bool(r, 0), Int(r, 1), Bool(r, 2), Int(r, 3), Bool(r, 4)),
+            "SELECT unattended, concurrency, master_enabled, budget_stop_percent, integration_enabled FROM pool_overrides WHERE project_key = $k",
+            ("$k", projectKey)).FirstOrDefault();
+    }
+
+    /// <summary>Stores the override. An override with every field null removes the row.</summary>
+    public void SetOverride(PoolOverride value)
+    {
+        ArgumentNullException.ThrowIfNull(value);
+        if (value.IsEmpty)
+        {
+            ClearOverride();
+            return;
+        }
+
+        using var connection = workspace.Open();
+        Db.Execute(connection,
+            "INSERT INTO pool_overrides (project_key, unattended, concurrency, master_enabled, budget_stop_percent, integration_enabled) VALUES ($k, $u, $c, $m, $b, $i) "
+            + "ON CONFLICT(project_key) DO UPDATE SET unattended = $u, concurrency = $c, master_enabled = $m, budget_stop_percent = $b, integration_enabled = $i",
+            ("$k", projectKey), ("$u", value.Unattended), ("$c", value.Concurrency), ("$m", value.MasterEnabled), ("$b", value.BudgetStopPercent), ("$i", value.IntegrationEnabled));
+    }
+
+    public void ClearOverride()
+    {
+        using var connection = workspace.Open();
+        Db.Execute(connection, "DELETE FROM pool_overrides WHERE project_key = $k", ("$k", projectKey));
+    }
+
+    private static bool? Bool(SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetInt64(i) != 0;
+
+    private static int? Int(SqliteDataReader r, int i) => r.IsDBNull(i) ? null : r.GetInt32(i);
+
     // ---------- notes for the next attempt ----------
 
     /// <summary>Keeps a note for the next attempt at a task whose text lives in a tracker.</summary>
@@ -268,12 +307,38 @@ public sealed class PoolStateStore(Workspace.Workspace workspace, string project
 
     // ---------- pause ----------
 
+    /// <summary>The reason of a pause a person asked for. Such a pause has no retry time and never expires.</summary>
+    public const string PersonPauseReason = "Paused by a person";
+
+    /// <summary>The sub-status shown while a person pause waits for the tasks that already started.</summary>
+    public const string FinishingCurrentTasks = "finishing current tasks";
+
+    /// <summary>
+    /// Records a pause a person asked for. Does nothing when the pool is already paused: a budget or infrastructure
+    /// pause keeps its retry time, a person pause stays as it is. Returns true when the pause was newly set.
+    /// </summary>
+    public bool PauseByPerson(DateTimeOffset at)
+    {
+        using var connection = workspace.Open();
+        return Db.Execute(connection, "INSERT OR IGNORE INTO pool_pause (project_key, reason, retry_at, created_at) VALUES ($k, $r, NULL, $t)",
+            ("$k", projectKey), ("$r", PersonPauseReason), ("$t", Db.Stamp(at))) > 0;
+    }
+
     public void Pause(string reason, DateTimeOffset? retryAt, DateTimeOffset at)
     {
+        // A pause a person asked for is only lifted by a person.
+        if (CurrentPause() is { } existing && IsPersonPause(existing))
+        {
+            return;
+        }
+
         using var connection = workspace.Open();
         Db.Execute(connection, "INSERT OR REPLACE INTO pool_pause (project_key, reason, retry_at, created_at) VALUES ($k, $r, $a, $t)",
             ("$k", projectKey), ("$r", reason), ("$a", retryAt is { } r ? Db.Stamp(r) : null), ("$t", Db.Stamp(at)));
     }
+
+    public static bool IsPersonPause(PoolPause pause) =>
+        pause.RetryAt is null && string.Equals(pause.Reason, PersonPauseReason, StringComparison.Ordinal);
 
     public PoolPause? CurrentPause()
     {

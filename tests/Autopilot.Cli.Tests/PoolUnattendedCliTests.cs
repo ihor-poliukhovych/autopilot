@@ -4,6 +4,8 @@ using Autopilot.Core.Config;
 using Autopilot.Core.Facts;
 using Autopilot.Core.Gate;
 using Autopilot.Core.Git;
+using Autopilot.Core.Local;
+using Autopilot.Core.Pipeline;
 using Autopilot.Core.Pool;
 using Autopilot.Core.Process;
 using Autopilot.Core.Scheduling;
@@ -117,6 +119,111 @@ public sealed class PoolUnattendedCliTests : IDisposable
         Assert.StartsWith("integration/", branch, StringComparison.Ordinal);
     }
 
+    private static string FailingOutput => "Build FAILED.\nsrc/One.cs(3,5): error CS1002: ; expected\nsrc/One.cs(4,1): error CS0103: name missing\n    0 Warning(s)\n    2 Error(s)";
+
+    [Fact]
+    public async Task A_failed_check_is_run_twice_saves_the_full_output_and_puts_error_lines_in_the_message()
+    {
+        using var repo = await TestRepo.CreateAsync(new Dictionary<string, string> { ["src/a.cs"] = "class A {}\n" });
+        var calls = 0;
+        var service = Service(repo, Config(), (_, _) => { calls++; return Task.FromResult((false, FailingOutput)); });
+        var branch = (await service.EnsureBranchAsync(DateTimeOffset.UtcNow, default))!;
+        var before = (await repo.GitAsync("rev-parse", branch)).Trim();
+        await TaskBranchAsync(repo, "autopilot/1", "src/one.cs", "class One {}\n");
+        var log = _temp.Combine("runs", "1", "post-merge-check.log");
+
+        var merged = await service.MergeAsync("1", "autopilot/1", default, log);
+
+        Assert.False(merged.Merged);
+        Assert.Equal(2, calls);
+        Assert.Contains("error CS1002", merged.Message, StringComparison.Ordinal);
+        Assert.Contains("error CS0103", merged.Message, StringComparison.Ordinal);
+        Assert.True(File.Exists(log));
+        var text = File.ReadAllText(log);
+        Assert.Contains("error CS1002: ; expected", text, StringComparison.Ordinal);
+        Assert.Contains("2 Error(s)", text, StringComparison.Ordinal);
+        Assert.Equal(before, (await repo.GitAsync("rev-parse", branch)).Trim());
+        Assert.Empty(service.Info().Merges);
+    }
+
+    [Fact]
+    public async Task A_check_that_passes_on_the_retry_keeps_the_merge_and_writes_no_log()
+    {
+        using var repo = await TestRepo.CreateAsync(new Dictionary<string, string> { ["src/a.cs"] = "class A {}\n" });
+        var calls = 0;
+        var service = Service(repo, Config(), (_, _) => Task.FromResult(++calls == 1 ? (false, FailingOutput) : (true, string.Empty)));
+        var branch = (await service.EnsureBranchAsync(DateTimeOffset.UtcNow, default))!;
+        await TaskBranchAsync(repo, "autopilot/1", "src/one.cs", "class One {}\n");
+        var log = _temp.Combine("runs", "1", "post-merge-check.log");
+
+        var merged = await service.MergeAsync("1", "autopilot/1", default, log);
+
+        Assert.True(merged.Merged, merged.Message);
+        Assert.Equal(2, calls);
+        Assert.Equal("1", Assert.Single(service.Info().Merges).WorkItemId);
+        Assert.Contains("class One {}", await repo.GitAsync("show", $"{branch}:src/one.cs"), StringComparison.Ordinal);
+        Assert.False(File.Exists(log));
+    }
+
+    [Fact]
+    public async Task A_retry_that_cannot_set_up_its_checkout_still_undoes_the_merge()
+    {
+        using var repo = await TestRepo.CreateAsync(new Dictionary<string, string> { ["src/a.cs"] = "class A {}\n" });
+        var service = Service(repo, Config(), (_, _) => Task.FromResult((false, FailingOutput)));
+        var branch = (await service.EnsureBranchAsync(DateTimeOffset.UtcNow, default))!;
+        var before = (await repo.GitAsync("rev-parse", branch)).Trim();
+        await TaskBranchAsync(repo, "autopilot/1", "src/one.cs", "class One {}\n");
+        Directory.CreateDirectory(repo.WorktreeRoot);
+        File.WriteAllText(Path.Combine(repo.WorktreeRoot, IntegrationService.WorktreeName + "-check"), "in the way"); // the fresh checkout cannot be created
+        var log = _temp.Combine("runs", "1", "post-merge-check.log");
+
+        var merged = await service.MergeAsync("1", "autopilot/1", default, log);
+
+        Assert.False(merged.Merged);
+        Assert.Equal(before, (await repo.GitAsync("rev-parse", branch)).Trim());
+        Assert.Empty(service.Info().Merges);
+        Assert.True(File.Exists(log));
+    }
+
+    [Fact]
+    public async Task IntegrateAsync_saves_the_check_log_in_the_run_folder_of_the_data_folder()
+    {
+        using var repo = await TestRepo.CreateAsync(new Dictionary<string, string> { ["src/a.cs"] = "class A {}\n" });
+        var service = Service(repo, Config(), (_, _) => Task.FromResult((false, FailingOutput)));
+        await service.EnsureBranchAsync(DateTimeOffset.UtcNow, default);
+        await TaskBranchAsync(repo, "autopilot/1", "src/one.cs", "class One {}\n");
+        var data = _temp.Combine("custom-data");
+        var tasks = new PipelinePoolTasks(null!, null!, new TriageStore(repo.Root, data), null, repo.Git, Config(), service);
+
+        var result = await tasks.IntegrateAsync(new ImplementResult("1", ImplementOutcome.Published, "ok", "autopilot/1"), default);
+
+        Assert.False(result!.Merged);
+        var log = Path.Combine(ProjectPaths.RunFolder(repo.Root, "1", data), "post-merge-check.log");
+        Assert.True(File.Exists(log));
+        Assert.Contains("error CS1002", File.ReadAllText(log), StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(ProjectPaths.RunFolder(repo.Root, "1"), "post-merge-check.log")));
+    }
+
+    [Fact]
+    public async Task A_passing_check_is_not_retried_and_a_conflict_is_not_checked_at_all()
+    {
+        using var repo = await TestRepo.CreateAsync(new Dictionary<string, string> { ["src/a.cs"] = "class A {}\n" });
+        var calls = 0;
+        var service = Service(repo, Config(), (_, _) => { calls++; return Task.FromResult((true, string.Empty)); });
+        await service.EnsureBranchAsync(DateTimeOffset.UtcNow, default);
+        await TaskBranchAsync(repo, "autopilot/1", "src/one.cs", "one\n");
+        await TaskBranchAsync(repo, "autopilot/2", "src/one.cs", "two\n");
+        var log = _temp.Combine("runs", "1", "post-merge-check.log");
+
+        Assert.True((await service.MergeAsync("1", "autopilot/1", default, log)).Merged);
+        Assert.Equal(1, calls);
+        Assert.False(File.Exists(log));
+
+        var conflict = await service.MergeAsync("2", "autopilot/2", default, log);
+        Assert.False(conflict.Merged);
+        Assert.Equal(1, calls);
+    }
+
     [Fact]
     public async Task A_task_whose_build_or_tests_fail_is_not_kept_in_the_integration_branch()
     {
@@ -227,6 +334,27 @@ public sealed class PoolUnattendedCliTests : IDisposable
         Assert.Equal(1, refused.Exit);
         Assert.Contains("pool.concurrency", refused.Err, StringComparison.Ordinal);
         Assert.Equal(2, ConfigLoader.Load(repo.Root, new Ws(WorkspacePath).ProjectFolder("demo")).Pool.Concurrency);
+    }
+
+    [Fact]
+    public async Task Pool_pause_sets_a_person_pause_says_so_when_already_paused_and_resume_lifts_it()
+    {
+        using var repo = await AddProjectAsync();
+        var state = new PoolStateStore(new Ws(WorkspacePath), "demo");
+
+        var first = await Cli("pool", "pause", "--project", "demo");
+        Assert.Equal(0, first.Exit);
+        Assert.Contains("The pool is paused", first.Out, StringComparison.Ordinal);
+        Assert.Equal("Paused by a person", state.CurrentPause()!.Reason);
+        Assert.Null(state.CurrentPause()!.RetryAt);
+
+        var second = await Cli("pool", "pause", "--project", "demo");
+        Assert.Equal(0, second.Exit);
+        Assert.Contains("already paused", second.Out, StringComparison.Ordinal);
+
+        var resumed = await Cli("pool", "resume", "--project", "demo");
+        Assert.Contains("no longer paused", resumed.Out, StringComparison.Ordinal);
+        Assert.Null(state.CurrentPause());
     }
 
     [Fact]

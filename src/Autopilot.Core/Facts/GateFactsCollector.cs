@@ -44,8 +44,21 @@ public sealed class GateFactsCollector(GitClient git, AutopilotConfig config, st
         var changes = await git.GetChangesAsync(baseCommit, headCommit, ct).ConfigureAwait(false);
         var log = new StringBuilder();
 
-        var before = await BaseAsync(workItemId, baseCommit, log, ct).ConfigureAwait(false);
-        var after = await BuildAndTestCommitAsync(workItemId, "gate-head", headCommit, log, ct).ConfigureAwait(false);
+        CheckoutRun before, after;
+        if (string.Equals(config.Gate.Scope, GateScopes.Affected, StringComparison.Ordinal))
+        {
+            // The branch runs first: its project files decide which test projects the base runs too, so the
+            // test counts of both sides cover the same projects.
+            after = await BuildAndTestCommitAsync(workItemId, "gate-head", headCommit, log, ct,
+                planner: root => PlanFor(root, changes)).ConfigureAwait(false);
+            before = await BaseAsync(workItemId, baseCommit, log, ct, after.Plan).ConfigureAwait(false);
+        }
+        else
+        {
+            log.AppendLine(TestPlan.Full.Description);
+            before = await BaseAsync(workItemId, baseCommit, log, ct).ConfigureAwait(false);
+            after = await BuildAndTestCommitAsync(workItemId, "gate-head", headCommit, log, ct).ConfigureAwait(false);
+        }
 
         var tests = new TestFacts(
             BuildSucceeded: after.BuildSucceeded,
@@ -88,20 +101,23 @@ public sealed class GateFactsCollector(GitClient git, AutopilotConfig config, st
     }
 
     /// <summary>The base commit's facts: from the cache when a matching entry exists, otherwise built and tested.</summary>
-    private async Task<CheckoutRun> BaseAsync(string workItemId, string baseCommit, StringBuilder log, CancellationToken ct)
+    private async Task<CheckoutRun> BaseAsync(string workItemId, string baseCommit, StringBuilder log, CancellationToken ct, TestPlan? plan = null)
     {
+        var affected = plan is { IsAffected: true };
         if (BaseCacheFolder is null)
         {
-            return await BuildAndTestCommitAsync(workItemId, "gate-base", baseCommit, log, ct).ConfigureAwait(false);
+            return await BuildAndTestCommitAsync(workItemId, "gate-base", baseCommit, log, ct, fixedPlan: affected ? plan : null).ConfigureAwait(false);
         }
 
-        var key = BaseCacheKey(baseCommit, config.Commands.Build, config.Commands.Test, ToolVersion);
+        // An affected run counts only some projects, so the projects are part of the key.
+        var testKey = affected ? config.Commands.Test + " #affected: " + string.Join(",", plan!.TestProjects) : config.Commands.Test;
+        var key = BaseCacheKey(baseCommit, config.Commands.Build, testKey, ToolVersion);
         var file = Path.Combine(BaseCacheFolder, key + ".json");
         var cached = ReadCache(file);
         if (cached is not null
             && cached.BaseCommit == baseCommit
             && cached.Build == config.Commands.Build.Trim()
-            && cached.Test == config.Commands.Test.Trim()
+            && cached.Test == testKey.Trim()
             && cached.ToolVersion == ToolVersion)
         {
             var counts = new TrxCounts(cached.TrxFiles, cached.Total, cached.Skipped, cached.Failed);
@@ -110,12 +126,12 @@ public sealed class GateFactsCollector(GitClient git, AutopilotConfig config, st
             return new CheckoutRun(cached.BuildSucceeded, cached.TestsSucceeded, counts, null, null, config.Commands.Test, FromCache: true);
         }
 
-        var run = await BuildAndTestCommitAsync(workItemId, "gate-base", baseCommit, log, ct).ConfigureAwait(false);
+        var run = await BuildAndTestCommitAsync(workItemId, "gate-base", baseCommit, log, ct, fixedPlan: affected ? plan : null).ConfigureAwait(false);
 
         // Only a complete result is kept: a failed build or uncounted tests may be a passing problem.
         if (run.BuildSucceeded && run.Counts.Found)
         {
-            var entry = new BaseCacheEntry(1, baseCommit, config.Commands.Build.Trim(), config.Commands.Test.Trim(), ToolVersion,
+            var entry = new BaseCacheEntry(1, baseCommit, config.Commands.Build.Trim(), testKey.Trim(), ToolVersion,
                 run.BuildSucceeded, run.TestsSucceeded, run.Counts.Files, run.Counts.Total, run.Counts.Skipped, run.Counts.Failed, DateTimeOffset.UtcNow);
             if (WriteCache(file, entry))
             {
@@ -176,7 +192,8 @@ public sealed class GateFactsCollector(GitClient git, AutopilotConfig config, st
     /// configured build command, then the test command with a TRX logger into a folder only this run
     /// writes. <paramref name="name"/> and <paramref name="label"/> name the worktree. Doctor uses it too.
     /// </summary>
-    public async Task<CheckoutRun> BuildAndTestCommitAsync(string name, string label, string commit, StringBuilder log, CancellationToken ct)
+    public async Task<CheckoutRun> BuildAndTestCommitAsync(string name, string label, string commit, StringBuilder log, CancellationToken ct,
+        Func<string, TestPlan>? planner = null, TestPlan? fixedPlan = null)
     {
         ArgumentNullException.ThrowIfNull(log);
         var workItemId = name;
@@ -204,13 +221,29 @@ public sealed class GateFactsCollector(GitClient git, AutopilotConfig config, st
             Directory.CreateDirectory(results);
             try
             {
+                var plan = fixedPlan ?? planner?.Invoke(path);
+                if (plan is { IsAffected: true } && !IsDotnetTest(config.Commands.Test))
+                {
+                    plan = TestPlan.FullByFallback("the test command is not dotnet test");
+                }
+
+                if (plan is not null)
+                {
+                    log.AppendLine($"== {label}: {plan.Description}");
+                }
+
+                if (plan is { IsAffected: true })
+                {
+                    return await RunAffectedAsync(path, label, plan, results, build, log, ct).ConfigureAwait(false);
+                }
+
                 var testCommand = TrxTestCounts.WithTrxLogger(config.Commands.Test, results) ?? config.Commands.Test;
                 log.AppendLine($"== {label}: {testCommand}");
                 var started = DateTime.UtcNow.AddSeconds(-2);
                 var test = await ShellRunner.RunAsync(testCommand, path, CommandTimeout, CommandEnvironment, ct, config.PassEnvironment).ConfigureAwait(false);
                 AppendLog(log, test);
                 var counts = ReadCounts(results, started, log);
-                return new CheckoutRun(true, test.Succeeded, counts, build, test, testCommand);
+                return new CheckoutRun(true, test.Succeeded, counts, build, test, testCommand, Plan: plan);
             }
             finally
             {
@@ -221,6 +254,85 @@ public sealed class GateFactsCollector(GitClient git, AutopilotConfig config, st
         {
             await git.RemoveWorktreeAsync(path, CancellationToken.None).ConfigureAwait(false);
         }
+    }
+
+    private TestPlan PlanFor(string root, IReadOnlyList<FileChange> changes)
+    {
+        try
+        {
+            return GateScopeSelector.Select(config.Gate.Scope, changes, ProjectGraph.Load(root));
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return TestPlan.FullByFallback($"the project files could not be read: {ex.Message}");
+        }
+    }
+
+    private static bool IsDotnetTest(string command)
+    {
+        var trimmed = command.Trim();
+        return trimmed.Equals("dotnet test", StringComparison.OrdinalIgnoreCase)
+            || trimmed.StartsWith("dotnet test ", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// The configured <c>dotnet test</c> command for one test project: its solution or project argument is
+    /// replaced by <paramref name="project"/> and <c>--no-build</c> is added, because the solution was built once.
+    /// </summary>
+    public static string AffectedTestCommand(string testCommand, string project)
+    {
+        var tokens = System.Text.RegularExpressions.Regex.Matches(testCommand.Trim(), "\"[^\"]*\"|\\S+").Select(m => m.Value).Skip(2);
+        var kept = tokens.Where(t =>
+        {
+            var bare = t.Trim('"');
+            return t.StartsWith('-') || !(bare.EndsWith(".sln", StringComparison.OrdinalIgnoreCase)
+                || bare.EndsWith(".slnx", StringComparison.OrdinalIgnoreCase)
+                || bare.EndsWith(".slnf", StringComparison.OrdinalIgnoreCase)
+                || bare.EndsWith(".csproj", StringComparison.OrdinalIgnoreCase));
+        });
+        return $"dotnet test \"{project}\" {string.Join(' ', kept)} --no-build".Replace("  ", " ", StringComparison.Ordinal);
+    }
+
+    private async Task<CheckoutRun> RunAffectedAsync(string path, string label, TestPlan plan, string results, ProcessResult build, StringBuilder log, CancellationToken ct)
+    {
+        int files = 0, total = 0, skipped = 0, failed = 0;
+        var succeeded = true;
+        ProcessResult? last = null;
+        var ran = 0;
+        foreach (var project in plan.TestProjects)
+        {
+            if (!File.Exists(Path.Combine(path, project)))
+            {
+                log.AppendLine($"== {label}: {project} does not exist in this checkout, so it is not run here");
+                continue;
+            }
+
+            var folder = Path.Combine(results, $"p{ran++}");
+            Directory.CreateDirectory(folder);
+            var command = TrxTestCounts.WithTrxLogger(AffectedTestCommand(config.Commands.Test, project), folder)!;
+            log.AppendLine($"== {label}: {command}");
+            var started = DateTime.UtcNow.AddSeconds(-2);
+            var test = await ShellRunner.RunAsync(command, path, CommandTimeout, CommandEnvironment, ct, config.PassEnvironment).ConfigureAwait(false);
+            AppendLog(log, test);
+            last = test;
+            succeeded &= test.Succeeded;
+            var counts = ReadCounts(folder, started, log);
+            files += counts.Files;
+            total += counts.Total;
+            skipped += counts.Skipped;
+            failed += counts.Failed;
+            if (!counts.Found)
+            {
+                // Not counted: leave Found false so the gate fails closed.
+                files = 0;
+                break;
+            }
+        }
+
+        // No project to run here (the base of a brand new test project): zero tests, counted.
+        var found = ran == 0 || files > 0;
+        return new CheckoutRun(true, succeeded, ran == 0 ? new TrxCounts(1, 0, 0, 0) : new TrxCounts(found ? files : 0, total, skipped, failed),
+            build, last, config.Commands.Test, Plan: plan);
     }
 
     private static TrxCounts ReadCounts(string results, DateTime started, StringBuilder log)
@@ -281,4 +393,5 @@ public sealed record CheckoutRun(
     ProcessResult? Build,
     ProcessResult? Test,
     string TestCommand,
-    bool FromCache = false);
+    bool FromCache = false,
+    TestPlan? Plan = null);

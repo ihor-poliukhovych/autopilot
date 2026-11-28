@@ -236,17 +236,17 @@ public sealed partial class AutopilotPipeline(AutopilotPipelineOptions options)
 
         var runFolder = ProjectPaths.RunFolder(_projectRoot, id, options.DataFolder);
         Directory.CreateDirectory(runFolder);
+        var previousFindings = ReadPreviousFindings(Path.Combine(runFolder, "REJECTED.md"));
         DeleteIfExists(Path.Combine(runFolder, "REJECTED.md"));
         DeleteIfExists(Path.Combine(runFolder, "PULL_REQUEST.md"));
         await File.WriteAllTextAsync(Path.Combine(runFolder, BaseFileName), $"{_config.BaseBranch} {baseCommit}", ct).ConfigureAwait(false);
 
         var worktree = Path.Combine(options.WorktreeRoot, id);
         await RemoveWorktreeIfPresentAsync(worktree).ConfigureAwait(false);
-        Write($"{id}: creating worktree on {branch} from {_config.BaseBranch}");
-        await _git.AddWorktreeAsync(worktree, branch, baseCommit, ct).ConfigureAwait(false);
+        var retry = await CreateWorktreeAsync(id, branch, baseCommit, worktree, previousFindings, ct).ConfigureAwait(false);
         try
         {
-            return await ImplementInWorktreeAsync(item, triage, branch, baseCommit, worktree, runFolder, context, ct).ConfigureAwait(false);
+            return await ImplementInWorktreeAsync(item, triage, branch, baseCommit, worktree, runFolder, context, retry, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -257,6 +257,69 @@ public sealed partial class AutopilotPipeline(AutopilotPipelineOptions options)
         {
             await RemoveWorktreeIfPresentAsync(worktree).ConfigureAwait(false);
         }
+    }
+
+    /// <summary>
+    /// Creates the worktree and the attempt branch. A retry (pool.retry.continue, a kept attempt branch)
+    /// starts from the latest kept branch merged with the base; a conflict falls back to a clean start.
+    /// Returns what the prompt needs when the retry continued, else null.
+    /// </summary>
+    private async Task<PromptLibrary.RetryContinuation?> CreateWorktreeAsync(
+        string id, string branch, string baseCommit, string worktree, IReadOnlyList<string> findings, CancellationToken ct)
+    {
+        if (_config.Pool.Retry.Continue)
+        {
+            var attempt = 0;
+            while (await _git.BranchExistsAsync($"{branch}-attempt-{attempt + 1}", ct).ConfigureAwait(false))
+            {
+                attempt++;
+            }
+
+            if (attempt > 0)
+            {
+                var kept = $"{branch}-attempt-{attempt}";
+                await _git.AddWorktreeAsync(worktree, branch, kept, ct).ConfigureAwait(false);
+                var merged = await _git.MergeNoFastForwardAsync(worktree, baseCommit, $"Merge {_config.BaseBranch} into {branch}", ct).ConfigureAwait(false);
+                if (merged is not null)
+                {
+                    Write($"{id}: continued from attempt {attempt} ({kept}), merged with {_config.BaseBranch}");
+                    return new PromptLibrary.RetryContinuation(attempt, findings);
+                }
+
+                Write($"{id}: could not continue from attempt {attempt} ({kept}): merging {_config.BaseBranch} conflicts. Starting clean instead.");
+                await RemoveWorktreeIfPresentAsync(worktree).ConfigureAwait(false);
+                await _git.DeleteBranchAsync(branch, ct).ConfigureAwait(false);
+            }
+        }
+
+        Write($"{id}: creating worktree on {branch} from {_config.BaseBranch}");
+        await _git.AddWorktreeAsync(worktree, branch, baseCommit, ct).ConfigureAwait(false);
+        return null;
+    }
+
+    // The bullet lines under "## Findings" and "## Reviewer findings" of a rejected run's REJECTED.md.
+    private static List<string> ReadPreviousFindings(string rejectedFile)
+    {
+        var found = new List<string>();
+        if (!File.Exists(rejectedFile))
+        {
+            return found;
+        }
+
+        var inFindings = false;
+        foreach (var line in File.ReadAllLines(rejectedFile))
+        {
+            if (line.StartsWith("## ", StringComparison.Ordinal))
+            {
+                inFindings = line is "## Findings" or "## Reviewer findings";
+            }
+            else if (inFindings && line.StartsWith("- ", StringComparison.Ordinal))
+            {
+                found.Add(line[2..]);
+            }
+        }
+
+        return found;
     }
 
     public async Task<RunSummary> RunAsync(int? limit, CancellationToken ct)
@@ -306,7 +369,7 @@ public sealed partial class AutopilotPipeline(AutopilotPipelineOptions options)
     }
 
     private async Task<ImplementResult> ImplementInWorktreeAsync(
-        WorkItem item, TriageResult triage, string branch, string baseCommit, string worktree, string runFolder, ProjectContext context, CancellationToken ct)
+        WorkItem item, TriageResult triage, string branch, string baseCommit, string worktree, string runFolder, ProjectContext context, PromptLibrary.RetryContinuation? retry, CancellationToken ct)
     {
         var id = item.Id;
         var writable = _config.WritablePaths;
@@ -314,7 +377,7 @@ public sealed partial class AutopilotPipeline(AutopilotPipelineOptions options)
         // Round 1: implement.
         Write($"{id}: implementer");
         var implement = await RunAgentAsync(id, AgentRole.Implementer, worktree,
-            PromptLibrary.ImplementerPrompt(item, triage, writable, _config.Commands, context: context), writable, ct).ConfigureAwait(false);
+            PromptLibrary.ImplementerPrompt(item, triage, writable, _config.Commands, context: context, retry: retry), writable, ct).ConfigureAwait(false);
         if (!implement.Succeeded)
         {
             return await RejectAsync(item, branch, runFolder, ImplementOutcome.Failed, $"The implementer run failed: {implement.Error}").ConfigureAwait(false);
@@ -322,7 +385,7 @@ public sealed partial class AutopilotPipeline(AutopilotPipelineOptions options)
 
         OutputParser.TryParseSelfReview(implement, out var selfReview, out _);
         var commit = await _git.CommitAllAsync(worktree, CommitMessages.Build(_config.CommitStyle, item, 1), ct).ConfigureAwait(false);
-        if (commit is null)
+        if (commit is null && retry is null)
         {
             return await RejectAsync(item, branch, runFolder, ImplementOutcome.Rejected, "The implementer made no changes.").ConfigureAwait(false);
         }
@@ -361,7 +424,7 @@ public sealed partial class AutopilotPipeline(AutopilotPipelineOptions options)
         {
             await File.WriteAllTextAsync(Path.Combine(runFolder, "change.patch"), diff, ct).ConfigureAwait(false);
             await report.WriteAsync(runFolder, ct).ConfigureAwait(false);
-            await WriteRejectedAsync(runFolder, item, branch, "The merge gate rejected the change.", decision.Findings, decision, report).ConfigureAwait(false);
+            await WriteRejectedAsync(runFolder, item, branch, "The merge gate rejected the change.", decision.Findings, decision, report, review?.Findings).ConfigureAwait(false);
             return new ImplementResult(id, ImplementOutcome.Rejected,
                 $"The merge gate rejected the change ({decision.Findings.Count} finding(s)).", branch, runFolder, decision);
         }
@@ -553,7 +616,7 @@ public sealed partial class AutopilotPipeline(AutopilotPipelineOptions options)
     }
 
     private static async Task WriteRejectedAsync(
-        string runFolder, WorkItem item, string branch, string reason, IReadOnlyList<GateFinding> findings, GateDecision? decision, GateReport? report = null)
+        string runFolder, WorkItem item, string branch, string reason, IReadOnlyList<GateFinding> findings, GateDecision? decision, GateReport? report = null, IReadOnlyList<string>? reviewerFindings = null)
     {
         var text = new StringBuilder();
         text.AppendLine($"# Rejected: {item.Id} {item.Title}");
@@ -567,6 +630,18 @@ public sealed partial class AutopilotPipeline(AutopilotPipelineOptions options)
             foreach (var finding in findings)
             {
                 text.AppendLine($"- [{finding.RuleId}] {finding.Message}{(finding.HighRisk ? " (high risk)" : string.Empty)}");
+            }
+
+            text.AppendLine();
+        }
+
+        if (reviewerFindings is { Count: > 0 })
+        {
+            text.AppendLine("## Reviewer findings");
+            text.AppendLine();
+            foreach (var finding in reviewerFindings)
+            {
+                text.AppendLine($"- {finding}");
             }
 
             text.AppendLine();

@@ -19,6 +19,7 @@ They live in the project's `autopilot.json` under `pool`, in the Pool page of th
   "onFailure": { "retries": 1, "then": "park", "pauseMinutes": 30 },
   "alwaysAsk": ["secrets", "stored-data", "contracts", "paid", "settings", "rules"],
   "budget": { "maxAgentRuns": null, "stopAtUsagePercent": 80 },
+  "retry": { "continue": true },
   "concurrency": 1,
   "integration": { "enabled": true, "branch": null, "baseBranch": null, "finalPr": "draft" }
 }
@@ -30,10 +31,29 @@ They live in the project's `autopilot.json` under `pool`, in the Pool page of th
 | `master` | The pool master: a read-only `claude -p` run that answers needs-human questions and classifies failures. Only used when the pool is unattended. |
 | `master.maxDecisionsPerRun` | After this many answers in one run the master parks the rest. |
 | `onFailure` | A task that failed for its own reasons is tried again `retries` times with the master's notes, then parked. `pauseMinutes` is how long an infrastructure failure pauses the pool. |
+| `retry.continue` | `true` (default): a retry starts from the previous attempt's kept branch (`<prefix><id>-attempt-N`, the latest), merged with the current base, and its prompt lists the earlier reviewer and gate findings. If the merge conflicts the retry starts clean and the log says so. `false`: every attempt starts clean. |
 | `alwaysAsk` | Topics the master never decides. A question about one of them parks the task. |
 | `budget` | `maxAgentRuns` is the most agent runs (implement attempts and master calls) in a rolling 24 hours. `stopAtUsagePercent` stops the pool when the subscription usage is known and at or above it. |
 | `concurrency` | 1 to 4 agents at once. |
 | `integration` | See below. |
+
+## Pool-level override of the project defaults
+
+Five settings can also be stored per project in the workspace database (table `pool_overrides`,
+migration 013): `unattended`, `concurrency`, `master.enabled`, `budget.stopAtUsagePercent` and
+`integration.enabled`. Each one is optional. A value that is set wins over `autopilot.json` for that
+project's pool only; a value that is not set (or a project with no override at all) uses the
+`autopilot.json` value. Fields resolve one by one, so an override of `concurrency` leaves the other
+four on the project's values. `autopilot.json` itself is never changed by an override.
+
+The web API shows the result. `GET /api/projects/<key>/pool/status` has, under `settings`, the effective
+values (`concurrency`, `unattended`, ...), `effective` (for each of the five: `value` and `source`,
+which is `pool` or `project`) and `override` (the stored values, `null` when there is no row).
+`PUT /api/projects/<key>/pool/settings/override` stores the override (a field left out or `null` is
+cleared) and `DELETE` on the same path removes it. Both return the settings view.
+
+Limit of this version: the web API and the resolver (`PoolSettingsResolver`) exist; the pool runner still
+reads the project's `autopilot.json` values.
 
 ## What the pool master decides
 
@@ -63,6 +83,13 @@ that cannot start). The pool pauses with the reason and a retry time. Other fail
 - **defect in Autopilot**: a `bug` task with a log excerpt is created, the task is parked, the pool goes on.
 
 A pause blocks new runs until its retry time or until `autopilot pool resume`.
+
+A person can pause the pool too: `autopilot pool pause` (or `POST /pool/pause`). The run finishes the agent
+steps already started and starts no new task, also when the pause comes while the run is going. The status
+shows Paused with the reason "Paused by a person" and the sub-status "finishing current tasks" while tasks
+still run; once none runs, the sub-status goes away. This pause has no retry time and never expires: only
+`autopilot pool resume` (or the web resume) lifts it. Pausing twice changes nothing, and a budget or
+infrastructure pause keeps its retry time.
 
 A used-up budget is not a failure. When `maxAgentRuns` or the usage limit is reached, the pool stops,
 the task that was about to run stays queued (no failure decision, no retry used, nothing parked), and
@@ -164,7 +191,7 @@ what will happen, the next run, and a button to cancel.
 autopilot pool run [--limit N] [--unattended] [--until HH:mm]
 autopilot pool settings [--unattended true|false] [--concurrency N] [--master true|false]
                         [--max-agent-runs N] [--stop-at-usage N] [--integration true|false]
-autopilot pool status | resume | decisions [revert <id>] | parked | unpark <id>
+autopilot pool status | pause | resume | decisions [revert <id>] | parked | unpark <id>
 autopilot pool integration [pr | new]
 autopilot schedule set | show | remove | catch-up
 ```

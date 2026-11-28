@@ -1,5 +1,5 @@
 import { get, ApiError } from './api.js';
-import { h, clear, toast, loading } from './dom.js';
+import { h, clear, toast, loading, statsStrip } from './dom.js';
 import * as projects from './projects.js';
 import * as inbox from './inbox.js';
 import * as pipeline from './pipeline.js';
@@ -97,7 +97,20 @@ async function route() {
         clear(tabs).append(tabBar);
         document.title = `${project.displayName} · Autopilot`;
         // Each page draws its own columns; the shell reserves none.
-        stop = await screen.render({ view: stage, project, key: r.key, rest: r.rest, state, go, refreshState }) || null;
+        let strip = null;
+        let target = stage;
+        if (page === 'pool') {
+          // The shared stats strip, shown on the Pool view first; the pool page keeps its own content below it.
+          const poolCounts = async () => {
+            const items = await get(`/projects/${encodeURIComponent(r.key)}/pool`);
+            return [['in pool', items.length]];
+          };
+          strip = statsStrip({ counts: await poolCounts().catch(() => []), onRefresh: poolCounts });
+          target = h('div');
+          stage.append(strip, target);
+        }
+        const inner = await screen.render({ view: target, project, key: r.key, rest: r.rest, state, go, refreshState }) || null;
+        stop = strip ? () => { strip.stop(); if (inner) inner(); } : inner;
       }
     } else if (r.name === 'new') {
       stop = await wizard.render({ view: stage, mode: 'new', state, go, refreshState }) || null;

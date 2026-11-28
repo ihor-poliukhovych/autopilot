@@ -17,6 +17,29 @@ public sealed class NavigationLayoutTests
     }
 
     [Fact]
+    public void Main_is_full_width_with_the_gutter_and_the_stats_strip_is_34px()
+    {
+        var css = Wwwroot("app.css");
+        var main = Regex.Match(css, @"^main \{([^}]*)\}", RegexOptions.Multiline).Groups[1].Value;
+        Assert.DoesNotContain("max-width", main);
+        Assert.DoesNotContain("auto", main);
+        Assert.Contains("var(--gutter)", main);
+        var strip = Regex.Match(css, @"^\.stats-strip \{([^}]*)\}", RegexOptions.Multiline).Groups[1].Value;
+        Assert.Contains("height: 34px", strip);
+        Assert.DoesNotContain("overflow", strip);
+    }
+
+    [Fact]
+    public void Stats_strip_helper_is_exported_and_shown_on_the_pool_view()
+    {
+        var dom = Wwwroot("js/dom.js");
+        Assert.Contains("export function statsStrip(", dom);
+        Assert.Contains("'Refresh'", dom);
+        Assert.Contains("updated ${clock()} every", dom);
+        Assert.Contains("statsStrip({", Wwwroot("js/app.js"));
+    }
+
+    [Fact]
     public void Tab_bar_is_exactly_Inbox_Tasks_Pipeline_Pool_Settings_in_order()
     {
         var js = Wwwroot("js/app.js");
@@ -75,10 +98,10 @@ public sealed class NavigationLayoutTests
     }
 
     [Fact]
-    public void Css_defines_left_col_420px_and_the_shared_layout_class()
+    public void Css_defines_left_col_340px_and_the_shared_layout_class()
     {
         var css = Wwwroot("app.css");
-        Assert.Matches(@"--left-col:\s*420px", css);
+        Assert.Matches(@"--left-col:\s*340px", css);
         Assert.Matches(@"\.app-layout\s*\{[^}]*grid-template-columns:\s*var\(--left-col\)\s+minmax\(0,\s*1fr\)", css);
         Assert.Matches(@"@media \(max-width: 760px\)\s*\{[^@]*\.app-right\s*\{[^}]*position: static", css);
     }
@@ -176,6 +199,19 @@ public sealed class NavigationLayoutTests
         var css = Wwwroot("app.css");
         Assert.DoesNotMatch(@"\.app-right[^{]*\{[^}]*position: fixed", css);
         Assert.Matches(@"\.drawer-open,\s*\.drawer-close\s*\{\s*display:\s*none", css);
+    }
+
+    [Fact]
+    public void Phone_block_keeps_topbar_on_one_row_and_tabs_scrollable()
+    {
+        var css = Wwwroot("app.css");
+        var blocks = Regex.Matches(css, @"@media \(max-width: 640px\) \{(.*?)\n\}", RegexOptions.Singleline)
+            .Select(m => m.Groups[1].Value).ToArray();
+        var block = Assert.Single(blocks, b => b.Contains(".topbar {"));
+        Assert.Matches(@"\.topbar\s*\{[^}]*flex-wrap:\s*nowrap", block);
+        Assert.Matches(@"\.topbar > \*\s*\{[^}]*flex-shrink:\s*0", block);
+        Assert.Matches(@"\.tabs\s*\{[^}]*flex-wrap:\s*wrap", block);
+        Assert.Matches(@"\.tabs a\s*\{[^}]*flex-shrink:\s*0[^}]*white-space:\s*nowrap", block);
     }
 
     [Fact]

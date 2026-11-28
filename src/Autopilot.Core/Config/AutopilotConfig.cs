@@ -38,6 +38,17 @@ public sealed record AutopilotConfig
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? PrTitleTemplate { get; init; }
 
+    /// <summary>
+    /// Optional template that maps a task's iteration or fix version to a release branch, for example
+    /// <c>release/release-{major}.{minor}.*</c>. Needs a wildcard (*) or a placeholder ({major}, {minor}, {patch}).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetBranchTemplate { get; init; }
+
+    /// <summary>The tracker field the target branch is read from, for example "iteration". Unset: not used.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetBranchField { get; init; }
+
     public CommandsConfig Commands { get; init; } = new();
 
     /// <summary>Glob patterns (relative to the project root) the implementer may write to.</summary>
@@ -149,6 +160,20 @@ public sealed record GateConfig
 
     /// <summary>When non-test code changed, at least one test file must change too.</summary>
     public bool RequireTestChange { get; init; } = true;
+
+    /// <summary>
+    /// "full" runs every test for a task; "affected" builds once and runs only the test projects that
+    /// reference a changed project. The pool's final PR check and the post-merge check are always full.
+    /// </summary>
+    public string Scope { get; init; } = GateScopes.Full;
+}
+
+public static class GateScopes
+{
+    public const string Full = "full";
+    public const string Affected = "affected";
+
+    public static IReadOnlyList<string> All { get; } = [Full, Affected];
 }
 
 public sealed record RolesConfig

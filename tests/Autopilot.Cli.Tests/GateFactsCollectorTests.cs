@@ -227,6 +227,91 @@ public sealed class GateFactsCollectorTests
         Assert.Equal(4, input.Tests.TestCountAfter);
     }
 
+    private static Dictionary<string, string> TwoProjectFiles() => new()
+    {
+        ["result.trx"] = Trx(3, 0),
+        ["src/Lib/Lib.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk\" />",
+        ["src/Lib/a.cs"] = "class A {}\n",
+        ["src/Other/Other.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk\" />",
+        ["tests/LibTests/LibTests.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><PackageReference Include=\"Microsoft.NET.Test.Sdk\" Version=\"1\" /><ProjectReference Include=\"..\\..\\src\\Lib\\Lib.csproj\" /></ItemGroup></Project>",
+        ["tests/OtherTests/OtherTests.csproj"] = "<Project Sdk=\"Microsoft.NET.Sdk\"><ItemGroup><PackageReference Include=\"Microsoft.NET.Test.Sdk\" Version=\"1\" /><ProjectReference Include=\"..\\..\\src\\Other\\Other.csproj\" /></ItemGroup></Project>",
+    };
+
+    [Fact]
+    public async Task Affected_scope_runs_only_the_test_projects_of_the_changed_project_on_both_sides()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fake = new FakeDotnetOnPath();
+        using var repo = await TestRepo.CreateAsync(TwoProjectFiles());
+        var baseCommit = await repo.Git.GetCommitAsync("main");
+        repo.Write("src/Lib/a.cs", "class A { int x; }\n");
+        var head = await repo.Git.CommitAllAsync(repo.Root, "change lib");
+        var config = new AutopilotConfig
+        {
+            Gate = new GateConfig { Scope = "affected" },
+            Commands = new CommandsConfig { Build = "echo ok", Test = "dotnet test \"Autopilot.slnx\"" },
+        };
+
+        var input = await new GateFactsCollector(repo.Git, config, repo.WorktreeRoot).CollectAsync("001", baseCommit, head!, NoEvidence, CancellationToken.None);
+
+        Assert.True(input.Tests.TestsSucceeded, input.Tests.Log);
+        Assert.True(input.Tests.TestCountsKnown, input.Tests.Log);
+        // One project ran on each side (the fake gives 3 tests per run), so the counts are comparable.
+        Assert.Equal(3, input.Tests.TestCountBefore);
+        Assert.Equal(3, input.Tests.TestCountAfter);
+        Assert.Contains("gate scope: affected (1 of 2 test projects: tests/LibTests/LibTests.csproj)", input.Tests.Log);
+        Assert.Contains("\"tests/LibTests/LibTests.csproj\" --no-build", input.Tests.Log);
+        Assert.DoesNotContain("OtherTests.csproj\" --no-build", input.Tests.Log);
+    }
+
+    [Fact]
+    public async Task Affected_scope_with_a_shared_file_change_runs_the_full_suite_and_says_why()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fake = new FakeDotnetOnPath();
+        using var repo = await TestRepo.CreateAsync(TwoProjectFiles());
+        var baseCommit = await repo.Git.GetCommitAsync("main");
+        repo.Write("Directory.Build.props", "<Project />");
+        var head = await repo.Git.CommitAllAsync(repo.Root, "props");
+        var config = new AutopilotConfig
+        {
+            Gate = new GateConfig { Scope = "affected" },
+            Commands = new CommandsConfig { Build = "echo ok", Test = "dotnet test" },
+        };
+
+        var input = await new GateFactsCollector(repo.Git, config, repo.WorktreeRoot).CollectAsync("001", baseCommit, head!, NoEvidence, CancellationToken.None);
+
+        Assert.True(input.Tests.TestCountsKnown, input.Tests.Log);
+        Assert.Contains("gate scope: full by fallback (Directory.Build.props is a shared file", input.Tests.Log);
+        Assert.DoesNotContain("--no-build", input.Tests.Log);
+    }
+
+    [Fact]
+    public async Task Full_scope_log_says_full()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        using var fake = new FakeDotnetOnPath();
+        using var repo = await TestRepo.CreateAsync(Files(Trx(3, 0)));
+        var commit = await repo.Git.GetCommitAsync("main");
+        var config = new AutopilotConfig { Commands = new CommandsConfig { Build = "echo ok", Test = "dotnet test" } };
+
+        var input = await new GateFactsCollector(repo.Git, config, repo.WorktreeRoot).CollectAsync("001", commit, commit, NoEvidence, CancellationToken.None);
+
+        Assert.Contains("gate scope: full (all tests of the solution)", input.Tests.Log);
+    }
+
     [Fact]
     public async Task Build_and_test_commands_get_a_clean_environment()
     {
