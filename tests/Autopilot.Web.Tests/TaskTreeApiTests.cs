@@ -126,6 +126,34 @@ public sealed class TaskTreeApiTests
     }
 
     [Fact]
+    public void Tasks_tab_shows_a_group_panel_with_children_and_three_buttons()
+    {
+        var dir = AppContext.BaseDirectory;
+        var root = dir[..dir.IndexOf("tests", StringComparison.Ordinal)];
+        var js = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "js", "tasks.js"));
+        var css = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "app.css"));
+        Assert.Contains("group && group.counts", js);
+        Assert.Contains("renderGroupPanel(", js);
+        Assert.Contains("data-part': 'group-detail'", js);
+        Assert.Contains("get(`${base(key)}/tasks/${group.id}`)", js);
+        Assert.Contains("`${c.done} of ${total}`", js);
+        Assert.Contains("data-part': 'group-children'", js);
+        Assert.Contains("group.children.length", js);
+        Assert.Contains("onclick: () => select(ch.id)", js);
+        Assert.Contains("'+ New task in this group'", js);
+        Assert.Contains("'+ New sub-group'", js);
+        Assert.Contains("'Move group...'", js);
+        Assert.Contains("post(`${base(key)}/tasks`, { title, body, labels: [] })", js);
+        Assert.Contains("/parent`, { parentId: group.id }", js);
+        Assert.Contains("g.id !== group.id && !excluded.has(g.id)", js);
+        Assert.Contains("/parent`, { parentId: Number(picker.value) }", js);
+        Assert.Contains("toast(e.message, true)", js);
+        Assert.Contains(".group-child", css);
+        var groupCss = string.Join("\n", css.Split('\n').Where(l => l.Contains(".group-")));
+        Assert.DoesNotMatch(@"#[0-9a-fA-F]{3,6}\b", groupCss);
+    }
+
+    [Fact]
     public async Task Moving_a_task_shows_it_under_the_new_parent_and_null_makes_it_a_root()
     {
         await using var ui = await WithTasksAsync(3);

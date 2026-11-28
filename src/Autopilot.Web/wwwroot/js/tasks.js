@@ -22,11 +22,113 @@ export async function render(ctx) {
   sel.loadDetail = async () => {
     clear(right);
     if (!sel.id) { right.append(h('div', { class: 'card' }, emptyState('Pick a task in the list to see its text, triage and comments here.', null, 'Select a task'))); return; }
+    const group = findNode(sel.tree || [], sel.id);
+    if (group && group.counts) { await renderGroupPanel({ ...ctx, view: right }, group, sel.tree, select, async () => { await sel.reloadList?.(); await sel.loadDetail(); }); return; }
     await renderDetail({ ...ctx, view: right }, sel.id, () => sel.reloadList?.());
   };
   const stop = await renderList({ ...ctx, view: left }, sel, select);
   await sel.loadDetail();
   return stop;
+}
+
+function findNode(nodes, id) {
+  for (const n of nodes) {
+    if (String(n.id) === String(id)) return n;
+    const hit = findNode(n.children || [], id);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+function descendantIds(node, out = new Set()) {
+  for (const c of node.children || []) { out.add(c.id); descendantIds(c, out); }
+  return out;
+}
+
+function allGroups(nodes, out = []) {
+  for (const n of nodes) if (n.counts) { out.push(n); allGroups(n.children, out); }
+  return out;
+}
+
+/** Right pane for a group row: kind, title, description, progress, direct children and the three group buttons. */
+async function renderGroupPanel(ctx, group, tree, select, changed) {
+  const { view, key } = ctx;
+  const holder = h('div', { class: 'stack group-panel', 'data-part': 'group-detail' });
+  view.append(holder);
+  const c = group.counts;
+  const total = c.done + c.inProgress + c.needsYou + c.notStarted;
+  let description = '';
+  try { description = (await get(`${base(key)}/tasks/${group.id}`)).task.body || ''; }
+  catch (e) { toast(e.message, true); }
+
+  const reload = async () => { if (changed) await changed(); };
+  const attach = async number => {
+    try { await post(`${base(key)}/tasks/${encodeURIComponent(number)}/parent`, { parentId: group.id }); }
+    catch (e) { toast(`The task was created but not put in the group: ${e.message}`, true); }
+  };
+  const createIn = async (title, body) => {
+    const created = await post(`${base(key)}/tasks`, { title, body, labels: [] });
+    await attach(created.number ?? created.id);
+    await reload();
+  };
+
+  const form = h('div', { class: 'stack', 'data-part': 'group-form' });
+  const openForm = (heading, withBody, done) => {
+    clear(form);
+    const title = h('input', { type: 'text', maxlength: 300, required: true });
+    const body = withBody ? h('textarea', { rows: 4, placeholder: 'What should change, and how will you know it works?' }) : null;
+    const f = h('form', { class: 'card stack' },
+      h('h3', {}, heading), field('Title', title), body ? field('Description', body) : null,
+      h('div', { class: 'row' }, h('button', { class: 'primary', type: 'submit' }, 'Add'), h('button', { type: 'button', onclick: () => clear(form) }, 'Cancel')));
+    f.addEventListener('submit', async ev => {
+      ev.preventDefault();
+      try { await done(title.value, body ? body.value : ''); toast('Added.'); } catch (e) { toast(e.message, true); }
+    });
+    form.append(f);
+    title.focus();
+  };
+
+  const excluded = descendantIds(group);
+  const targets = allGroups(tree).filter(g => g.id !== group.id && !excluded.has(g.id));
+  const openMove = () => {
+    clear(form);
+    const picker = h('select', { 'aria-label': 'Move group to' },
+      h('option', { value: '' }, 'Pick a group'),
+      targets.map(g => h('option', { value: String(g.id) }, `#${g.id} ${g.title}`)));
+    picker.addEventListener('change', async () => {
+      if (!picker.value) return;
+      try {
+        await post(`${base(key)}/tasks/${encodeURIComponent(group.id)}/parent`, { parentId: Number(picker.value) });
+        toast('Group moved.');
+        await reload();
+      } catch (e) { toast(e.message, true); }
+    });
+    form.append(h('div', { class: 'card row' }, picker, h('button', { type: 'button', onclick: () => clear(form) }, 'Cancel')));
+  };
+
+  holder.append(
+    h('div', { class: 'page-head' }, h('div', {},
+      h('div', { class: 'row' }, h('span', { class: 'chip tree-kind' }, group.kind || 'group'), h('span', { class: 'inbox-id' }, `#${group.id}`)),
+      h('h1', {}, group.title))),
+    h('div', { class: 'card stack' },
+      h('p', { class: 'prewrap group-description' }, description || 'No description.'),
+      h('div', { class: 'row' },
+        h('span', { class: 'tree-progress group-progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(c.done) },
+          h('span', { class: 'tree-progress-fill', style: `width:${total ? Math.round(100 * c.done / total) : 0}%` })),
+        h('span', { class: 'muted small' }, `${c.done} of ${total}`))),
+    h('div', { class: 'row group-actions' },
+      h('button', { type: 'button', class: 'primary', onclick: () => openForm('New task in this group', true, createIn) }, '+ New task in this group'),
+      h('button', { type: 'button', onclick: () => openForm('New sub-group', false, (t) => createIn(t, '')) }, '+ New sub-group'),
+      h('button', { type: 'button', onclick: openMove }, 'Move group...')),
+    form,
+    h('section', { class: 'card stack', 'data-part': 'group-children' },
+      h('h2', {}, 'Inside this group'),
+      group.children.length
+        ? group.children.map(ch => h('button', { type: 'button', class: 'group-child', 'data-id': String(ch.id), onclick: () => select(ch.id) },
+          h('span', { class: 'inbox-id' }, `#${ch.id}`),
+          h('span', { class: 'tree-title' }, ch.title),
+          h('span', { class: `tree-status status-${ch.status.replace(/ /g, '-')}` }, ch.status)))
+        : h('p', { class: 'muted' }, 'Nothing in this group yet.')));
 }
 
 function triageBadges(item) {
@@ -131,6 +233,7 @@ async function renderList(ctx, sel, select) {
       return data;
     }
     if (tree && tree.length) {
+      sel.tree = tree;
       if (sel.auto || !sel.id) { sel.id = String(tree[0].id); sel.auto = false; }
       const box = h('div', { class: 'task-tree card', 'data-part': 'task-tree', role: 'tree' },
         h('div', { class: 'tree-head' }, 'TASKS AND GROUPS / PROGRESS'));
