@@ -102,6 +102,30 @@ public sealed class TaskTreeApiTests
     }
 
     [Fact]
+    public void Tasks_tab_has_row_checkboxes_a_selection_bar_bulk_move_pool_add_and_drag_to_group()
+    {
+        var dir = AppContext.BaseDirectory;
+        var root = dir[..dir.IndexOf("tests", StringComparison.Ordinal)];
+        var js = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "js", "tasks.js"));
+        var css = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "app.css"));
+        Assert.Contains("type: 'checkbox', class: 'tree-check'", js);
+        Assert.Contains("ev.stopPropagation(); bulk.toggle", js);
+        Assert.Contains("`${selected.size} selected`", js);
+        Assert.Contains("'Move to group...'", js);
+        Assert.Contains("'Add to the pool'", js);
+        Assert.Contains("'Close'", js);
+        Assert.Contains("bar.hidden = selected.size === 0", js);
+        Assert.Contains("/parent`, { parentId }", js);
+        Assert.Contains("/pool`, { id: String(id) }", js);
+        Assert.DoesNotContain("{ id: Number(id) }", js);
+        Assert.Contains("groups.map(g => h('option'", js);
+        Assert.Contains("draggable: 'true'", js);
+        Assert.Contains("ondrop:", js);
+        Assert.Contains("bulk.drop(", js);
+        Assert.Contains("[hidden]", css);
+    }
+
+    [Fact]
     public async Task Moving_a_task_shows_it_under_the_new_parent_and_null_makes_it_a_root()
     {
         await using var ui = await WithTasksAsync(3);

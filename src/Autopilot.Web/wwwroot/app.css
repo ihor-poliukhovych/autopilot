@@ -301,6 +301,9 @@ dialog .row.end { justify-content: flex-end; margin-top: var(--s4); }
 .tree-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-progress { flex: 0 0 64px; height: 6px; background: var(--surface-3); border-radius: var(--radius-pill); overflow: hidden; }
 .tree-progress-fill { display: block; height: 100%; background: var(--ok); }
+.bulk-bar[hidden], .bulk-bar [hidden] { display: none; }
+.tree-row.drop-target { outline: 2px solid var(--ok); }
+.tree-check { margin-right: var(--sp-8); }
 .tree-count { flex: 0 0 auto; white-space: nowrap; }
 .tree-status { flex: 0 0 auto; font-size: var(--fs-sm); color: var(--muted); }
 .tree-status.status-done { color: var(--ok); }
