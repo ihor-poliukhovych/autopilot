@@ -70,16 +70,38 @@ public static class PromptLibrary
         text.AppendLine();
     }
 
+    /// <summary>A retry that continues from the previous attempt: which attempt, and what its reviewer and gate found.</summary>
+    public sealed record RetryContinuation(int Attempt, IReadOnlyList<string> Findings);
+
     public static string ImplementerPrompt(
         WorkItem item,
         TriageResult triage,
         IReadOnlyList<string> writablePaths,
         CommandsConfig commands,
         IReadOnlyList<string>? reviewFindings = null,
-        ProjectContext? context = null)
+        ProjectContext? context = null,
+        RetryContinuation? retry = null)
     {
         var text = new StringBuilder();
-        if (reviewFindings is { Count: > 0 })
+        if (retry is not null)
+        {
+            text.AppendLine($"An earlier attempt (attempt {retry.Attempt}) at this item was not accepted. Its change is already committed in this worktree (merged with the current base). Continue the existing change: fix exactly the points below and do not rewrite what works. Then answer with a new self-review of the whole change.");
+            text.AppendLine();
+            text.AppendLine("## Findings of the previous attempt");
+            text.AppendLine();
+            if (retry.Findings.Count == 0)
+            {
+                text.AppendLine("- (no findings were recorded; check the change against the acceptance criteria)");
+            }
+
+            foreach (var finding in retry.Findings)
+            {
+                text.AppendLine($"- {finding}");
+            }
+
+            text.AppendLine();
+        }
+        else if (reviewFindings is { Count: > 0 })
         {
             text.AppendLine("A reviewer asked for changes to your earlier work on this item. Your earlier changes are already committed in this worktree. Fix every finding below, then answer with a new self-review of the whole change.");
             text.AppendLine();

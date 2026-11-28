@@ -313,6 +313,11 @@ public static class ConfigLoader
             }
         }
 
+        if (pool.Retry is null)
+        {
+            problems.Add("pool.retry is missing. Remove it to use the defaults.");
+        }
+
         foreach (var category in pool.AlwaysAsk ?? [])
         {
             if (!PoolCategories.All.Contains(category, StringComparer.Ordinal))
