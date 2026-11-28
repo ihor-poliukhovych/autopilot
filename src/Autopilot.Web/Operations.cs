@@ -363,7 +363,17 @@ public sealed record PoolSettingsBody(bool? Unattended, int? Concurrency, bool? 
 
 public sealed record PoolSettingsView(
     bool Unattended, int Concurrency, int MaxConcurrency, bool MasterEnabled, bool IntegrationEnabled,
-    int? MaxAgentRuns, int StopAtUsagePercent, IReadOnlyList<string> AlwaysAsk, int Retries);
+    int? MaxAgentRuns, int StopAtUsagePercent, IReadOnlyList<string> AlwaysAsk, int Retries)
+{
+    /// <summary>Effective value and source ("pool" or "project") of the five settings a pool override can change.</summary>
+    public EffectivePoolSettings? Effective { get; init; }
+
+    /// <summary>The stored pool-level override; null when the project has none.</summary>
+    public PoolOverride? Override { get; init; }
+}
+
+/// <summary>The pool-level override to store. A null field clears that field's override.</summary>
+public sealed record PoolOverrideBody(bool? Unattended, int? Concurrency, bool? MasterEnabled, int? BudgetStopPercent, bool? IntegrationEnabled);
 
 public sealed record PoolSlotView(string Id, string Title, string State, string? Detail, DateTimeOffset Since);
 
@@ -553,8 +563,7 @@ public sealed class PoolOperations(WebUiOptions options)
         var currentPause = state.CurrentPause();
         var personPause = PersonPauseStatus(currentPause, slotList);
         return new PoolStatusView(
-            new PoolSettingsView(pool.Unattended, pool.Concurrency, Autopilot.Core.Config.PoolConfig.MaxConcurrency, pool.Master.Enabled, pool.Integration.Enabled,
-                pool.Budget.MaxAgentRuns, pool.Budget.StopAtUsagePercent, pool.AlwaysAsk, pool.OnFailure.Retries),
+            SettingsView(scope, pool),
             [.. slotList.Select(s => new PoolSlotView(s.WorkItemId, titles.GetValueOrDefault(s.WorkItemId, s.WorkItemId), s.State, s.Detail, s.Since))],
             currentPause,
             parked,
@@ -606,9 +615,44 @@ public sealed class PoolOperations(WebUiOptions options)
         if (body.StopAtUsagePercent is { } s) { budget["stopAtUsagePercent"] = s; }
         if (budget.Count > 0) { pool["budget"] = budget; }
         var saved = pool.Count == 0 ? scope.Settings.Read() : scope.Settings.Save(new System.Text.Json.Nodes.JsonObject { ["pool"] = pool });
-        var p = saved.Config.Pool;
-        return new PoolSettingsView(p.Unattended, p.Concurrency, Autopilot.Core.Config.PoolConfig.MaxConcurrency, p.Master.Enabled, p.Integration.Enabled,
-            p.Budget.MaxAgentRuns, p.Budget.StopAtUsagePercent, p.AlwaysAsk, p.OnFailure.Retries);
+        return SettingsView(scope, saved.Config.Pool);
+    }
+
+    /// <summary>Stores the pool-level override (a null field is cleared) and returns the settings with their sources.</summary>
+    public PoolSettingsView SaveOverride(ProjectScope scope, PoolOverrideBody body)
+    {
+        var state = new PoolStateStore(scope.Workspace, scope.Project.Key);
+        if (body.Concurrency is { } c && (c < 1 || c > Autopilot.Core.Config.PoolConfig.MaxConcurrency))
+        {
+            throw new ArgumentException($"Concurrency must be 1 to {Autopilot.Core.Config.PoolConfig.MaxConcurrency}.");
+        }
+
+        if (body.BudgetStopPercent is { } b && (b < 1 || b > 100))
+        {
+            throw new ArgumentException("The budget stop percent must be 1 to 100.");
+        }
+
+        state.SetOverride(new PoolOverride(body.Unattended, body.Concurrency, body.MasterEnabled, body.BudgetStopPercent, body.IntegrationEnabled));
+        return SettingsView(scope, ReadPool(scope));
+    }
+
+    public PoolSettingsView ClearOverride(ProjectScope scope)
+    {
+        new PoolStateStore(scope.Workspace, scope.Project.Key).ClearOverride();
+        return SettingsView(scope, ReadPool(scope));
+    }
+
+    private static PoolSettingsView SettingsView(ProjectScope scope, Autopilot.Core.Config.PoolConfig p)
+    {
+        var overrides = new PoolStateStore(scope.Workspace, scope.Project.Key).Override();
+        var effective = PoolSettingsResolver.Resolve(p, overrides);
+        return new PoolSettingsView(effective.Unattended.Value, effective.Concurrency.Value, Autopilot.Core.Config.PoolConfig.MaxConcurrency,
+            effective.MasterEnabled.Value, effective.IntegrationEnabled.Value,
+            p.Budget.MaxAgentRuns, effective.BudgetStopPercent.Value, p.AlwaysAsk, p.OnFailure.Retries)
+        {
+            Effective = effective,
+            Override = overrides,
+        };
     }
 
     /// <summary>Undoes a decision of the pool master: its answer leaves the task, the task goes back in the pool.</summary>

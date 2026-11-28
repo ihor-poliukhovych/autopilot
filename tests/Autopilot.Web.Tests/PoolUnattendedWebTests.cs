@@ -42,6 +42,51 @@ public sealed class PoolUnattendedWebTests
     }
 
     [Fact]
+    public async Task A_project_without_an_override_row_gets_its_autopilot_json_defaults_with_source_project()
+    {
+        await using var ui = await WithProjectAsync();
+
+        var (_, body) = await ui.GetAsync(Pool("/status"));
+        var settings = body.GetProperty("settings");
+        var effective = settings.GetProperty("effective");
+        foreach (var name in new[] { "unattended", "concurrency", "masterEnabled", "budgetStopPercent", "integrationEnabled" })
+        {
+            Assert.Equal("project", effective.GetProperty(name).GetProperty("source").GetString());
+        }
+
+        Assert.False(effective.GetProperty("unattended").GetProperty("value").GetBoolean());
+        Assert.Equal(1, effective.GetProperty("concurrency").GetProperty("value").GetInt32());
+        Assert.Equal(80, effective.GetProperty("budgetStopPercent").GetProperty("value").GetInt32());
+        Assert.True(effective.GetProperty("integrationEnabled").GetProperty("value").GetBoolean());
+        Assert.Equal(System.Text.Json.JsonValueKind.Null, settings.GetProperty("override").ValueKind);
+    }
+
+    [Fact]
+    public async Task The_pool_override_is_saved_shown_with_its_source_and_cleared()
+    {
+        await using var ui = await WithProjectAsync();
+
+        var (saved, view) = await ui.SendAsync(HttpMethod.Put, Pool("/settings/override"), new { concurrency = 3, budgetStopPercent = 55 });
+        Assert.Equal(HttpStatusCode.OK, saved);
+        Assert.Equal(3, view.GetProperty("concurrency").GetInt32());
+        var effective = view.GetProperty("effective");
+        Assert.Equal("pool", effective.GetProperty("concurrency").GetProperty("source").GetString());
+        Assert.Equal(55, effective.GetProperty("budgetStopPercent").GetProperty("value").GetInt32());
+        Assert.Equal("project", effective.GetProperty("unattended").GetProperty("source").GetString());
+
+        var (_, status) = await ui.GetAsync(Pool("/status"));
+        Assert.Equal("pool", status.GetProperty("settings").GetProperty("effective").GetProperty("concurrency").GetProperty("source").GetString());
+
+        var (refused, _) = await ui.SendAsync(HttpMethod.Put, Pool("/settings/override"), new { concurrency = 9 });
+        Assert.Equal(HttpStatusCode.BadRequest, refused);
+
+        var (cleared, back) = await ui.SendAsync(HttpMethod.Delete, Pool("/settings/override"), null);
+        Assert.Equal(HttpStatusCode.OK, cleared);
+        Assert.Equal(1, back.GetProperty("concurrency").GetInt32());
+        Assert.Equal("project", back.GetProperty("effective").GetProperty("concurrency").GetProperty("source").GetString());
+    }
+
+    [Fact]
     public async Task Decisions_and_parked_tasks_are_listed_and_a_decision_can_be_undone()
     {
         await using var ui = await WithProjectAsync();
