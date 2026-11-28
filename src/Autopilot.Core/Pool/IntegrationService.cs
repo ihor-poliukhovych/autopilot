@@ -135,7 +135,22 @@ public sealed class IntegrationService(
             if (!ok)
             {
                 // A transient environment error must not undo good work: check once more on a fresh checkout of the merged result.
-                var retry = await VerifyFreshAsync(head, ct).ConfigureAwait(false);
+                (bool Ok, string Message) retry;
+                try
+                {
+                    retry = await VerifyFreshAsync(head, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException)
+                {
+                    await git.ResetHardAsync(worktree, before, CancellationToken.None).ConfigureAwait(false);
+                    throw;
+                }
+                catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException)
+                {
+                    // The fresh checkout could not be set up: the merge still must not stay in the branch.
+                    retry = (false, $"The retry on a fresh checkout could not run: {ex.Message}");
+                }
+
                 if (!retry.Ok)
                 {
                     SaveCheckLog(checkLogPath, message, retry.Message);

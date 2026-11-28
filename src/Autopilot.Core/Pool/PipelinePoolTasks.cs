@@ -22,8 +22,7 @@ public sealed class PipelinePoolTasks(
     AutopilotConfig config,
     IntegrationService? integration,
     PoolStateStore? state = null,
-    TimeProvider? clock = null,
-    string? dataFolder = null) : IPoolTasks
+    TimeProvider? clock = null) : IPoolTasks
 {
     private readonly SemaphoreSlim _triageGate = new(1, 1);
 
@@ -159,6 +158,8 @@ public sealed class PipelinePoolTasks(
             return null;
         }
 
+        // The pipeline keeps its runs under the same data folder as the triage store: <data>/out/triage.
+        var dataFolder = Path.GetDirectoryName(Path.GetDirectoryName(Path.GetFullPath(triage.Folder)));
         return await integration.MergeAsync(result.WorkItemId, result.BranchName, ct,
             Path.Combine(ProjectPaths.RunFolder(git.RepositoryPath, result.WorkItemId, dataFolder), "post-merge-check.log")).ConfigureAwait(false);
     }

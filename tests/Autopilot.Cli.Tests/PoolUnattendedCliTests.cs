@@ -4,6 +4,8 @@ using Autopilot.Core.Config;
 using Autopilot.Core.Facts;
 using Autopilot.Core.Gate;
 using Autopilot.Core.Git;
+using Autopilot.Core.Local;
+using Autopilot.Core.Pipeline;
 using Autopilot.Core.Pool;
 using Autopilot.Core.Process;
 using Autopilot.Core.Scheduling;
@@ -161,6 +163,45 @@ public sealed class PoolUnattendedCliTests : IDisposable
         Assert.Equal("1", Assert.Single(service.Info().Merges).WorkItemId);
         Assert.Contains("class One {}", await repo.GitAsync("show", $"{branch}:src/one.cs"), StringComparison.Ordinal);
         Assert.False(File.Exists(log));
+    }
+
+    [Fact]
+    public async Task A_retry_that_cannot_set_up_its_checkout_still_undoes_the_merge()
+    {
+        using var repo = await TestRepo.CreateAsync(new Dictionary<string, string> { ["src/a.cs"] = "class A {}\n" });
+        var service = Service(repo, Config(), (_, _) => Task.FromResult((false, FailingOutput)));
+        var branch = (await service.EnsureBranchAsync(DateTimeOffset.UtcNow, default))!;
+        var before = (await repo.GitAsync("rev-parse", branch)).Trim();
+        await TaskBranchAsync(repo, "autopilot/1", "src/one.cs", "class One {}\n");
+        Directory.CreateDirectory(repo.WorktreeRoot);
+        File.WriteAllText(Path.Combine(repo.WorktreeRoot, IntegrationService.WorktreeName + "-check"), "in the way"); // the fresh checkout cannot be created
+        var log = _temp.Combine("runs", "1", "post-merge-check.log");
+
+        var merged = await service.MergeAsync("1", "autopilot/1", default, log);
+
+        Assert.False(merged.Merged);
+        Assert.Equal(before, (await repo.GitAsync("rev-parse", branch)).Trim());
+        Assert.Empty(service.Info().Merges);
+        Assert.True(File.Exists(log));
+    }
+
+    [Fact]
+    public async Task IntegrateAsync_saves_the_check_log_in_the_run_folder_of_the_data_folder()
+    {
+        using var repo = await TestRepo.CreateAsync(new Dictionary<string, string> { ["src/a.cs"] = "class A {}\n" });
+        var service = Service(repo, Config(), (_, _) => Task.FromResult((false, FailingOutput)));
+        await service.EnsureBranchAsync(DateTimeOffset.UtcNow, default);
+        await TaskBranchAsync(repo, "autopilot/1", "src/one.cs", "class One {}\n");
+        var data = _temp.Combine("custom-data");
+        var tasks = new PipelinePoolTasks(null!, null!, new TriageStore(repo.Root, data), null, repo.Git, Config(), service);
+
+        var result = await tasks.IntegrateAsync(new ImplementResult("1", ImplementOutcome.Published, "ok", "autopilot/1"), default);
+
+        Assert.False(result!.Merged);
+        var log = Path.Combine(ProjectPaths.RunFolder(repo.Root, "1", data), "post-merge-check.log");
+        Assert.True(File.Exists(log));
+        Assert.Contains("error CS1002", File.ReadAllText(log), StringComparison.Ordinal);
+        Assert.False(File.Exists(Path.Combine(ProjectPaths.RunFolder(repo.Root, "1"), "post-merge-check.log")));
     }
 
     [Fact]
