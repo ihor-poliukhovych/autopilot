@@ -28,11 +28,11 @@ public sealed class IntegrationBranchReadTests
         });
         repo.Write(".autopilot/tasks/001-ui.md", "# Tree list UI\nShow the tree.\n");
         await repo.GitAsync("add", "-A");
-        await repo.GitAsync("commit", "--quiet", "-m", "task");
+        await repo.GitAsync("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "task");
         await repo.GitAsync("checkout", "--quiet", "-b", Branch);
         repo.Write(OnlyOnIntegration, "class Tree { }\n");
         await repo.GitAsync("add", "-A");
-        await repo.GitAsync("commit", "--quiet", "-m", "tree endpoint");
+        await repo.GitAsync("-c", "user.name=t", "-c", "user.email=t@t", "commit", "--quiet", "-m", "tree endpoint");
         await repo.GitAsync("checkout", "--quiet", "main");
         return repo;
     }
