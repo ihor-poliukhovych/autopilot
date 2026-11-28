@@ -116,7 +116,9 @@ public sealed class TaskTreeApiTests
         Assert.Contains("'Close'", js);
         Assert.Contains("bar.hidden = selected.size === 0", js);
         Assert.Contains("/parent`, { parentId }", js);
-        Assert.Contains("/pool`, { id: Number(id) }", js);
+        Assert.Contains("/pool`, { id: String(id) }", js);
+        Assert.DoesNotContain("{ id: Number(id) }", js);
+        Assert.Contains("groups.map(g => h('option'", js);
         Assert.Contains("draggable: 'true'", js);
         Assert.Contains("ondrop:", js);
         Assert.Contains("bulk.drop(", js);

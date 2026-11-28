@@ -168,7 +168,7 @@ async function renderList(ctx, sel, select) {
             h('button', { type: 'button', onclick: async () => {
               const ids = [...selected];
               try {
-                for (const id of ids) await post(`${base(key)}/pool`, { id: Number(id) });
+                for (const id of ids) await post(`${base(key)}/pool`, { id: String(id) });
                 toast(ids.length === 1 ? 'Added to the pool.' : `${ids.length} tasks added to the pool.`);
               } catch (e) { toast(e.message, true); }
             } }, 'Add to the pool'),
