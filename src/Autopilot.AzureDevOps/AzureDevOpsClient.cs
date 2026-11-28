@@ -11,7 +11,7 @@ namespace Autopilot.AzureDevOps;
 /// from <see cref="IAzureDevOpsTokenProvider"/> in the Authorization header only. Requests are retried
 /// on 429 and 5xx (honouring Retry-After), never on other errors.
 /// </summary>
-public sealed class AzureDevOpsClient
+public sealed partial class AzureDevOpsClient
 {
     public const string ApiVersion = "7.1";
 
@@ -521,6 +521,14 @@ public sealed class AzureDevOpsClient
                     continue;
                 }
 
+                if (IsPolicyRejection(status, body))
+                {
+                    var said = credential.Redact(ServerMessage(body));
+                    throw new AzureDevOpsPolicyRejectedException(
+                        $"A branch policy rejected the request to {operation} ({(int)status}). Change what the policy asks for (for example use a pull request) instead of retrying.{(string.IsNullOrWhiteSpace(said) ? string.Empty : " Azure DevOps said: " + said)}",
+                        status);
+                }
+
                 throw new AzureDevOpsException(ErrorMessage(operation, status, credential.Redact(ServerMessage(body))), status);
             }
         }
@@ -674,7 +682,10 @@ public sealed class AzureDevOpsClient
 }
 
 /// <summary>An Azure DevOps request failed. The message says what to fix and never contains the token.</summary>
-public sealed class AzureDevOpsException(string message, HttpStatusCode? statusCode) : Exception(message)
+public class AzureDevOpsException(string message, HttpStatusCode? statusCode) : Exception(message)
 {
     public HttpStatusCode? StatusCode { get; } = statusCode;
 }
+
+/// <summary>A branch policy refused the change. Retrying the same request will not help.</summary>
+public sealed class AzureDevOpsPolicyRejectedException(string message, HttpStatusCode? statusCode) : AzureDevOpsException(message, statusCode);

@@ -70,6 +70,36 @@ public sealed record PullRequestCreate(
     string Description,
     string? WorkItemId);
 
+/// <summary>What to put on a new work item. Only the given parts are sent.</summary>
+public sealed record WorkItemCreate(
+    string Type,
+    string Title,
+    string? Description = null,
+    string? AreaPath = null,
+    string? IterationPath = null,
+    IReadOnlyList<string>? Tags = null,
+    string? AssignedTo = null);
+
+/// <summary>What a write changed: the operation, the ids touched and the fields set.</summary>
+public sealed record AdoChange(string Operation, IReadOnlyList<string> Ids, IReadOnlyList<string> Fields);
+
+public sealed record AdoWorkItemChange(int Id, int Rev, string? Url, AdoChange Change);
+
+public sealed record AdoPullRequestChange(AdoPullRequest PullRequest, AdoChange Change);
+
+/// <summary>Filter for listing pull requests. Status is active, abandoned, completed or all.</summary>
+public sealed record PullRequestQuery(string? CreatorId = null, string? Status = null, int Top = AzureDevOpsClient.DefaultTop);
+
+public sealed record AdoThreadComment(int Id, string? Content, string? Author, bool IsDeleted);
+
+public sealed record AdoThread(int Id, string? Status, string? FilePath, IReadOnlyList<AdoThreadComment> Comments);
+
+public sealed record AdoBranch(string Name, string ObjectId);
+
+public sealed record AdoBranchChange(string Name, string? OldObjectId, string? NewObjectId, AdoChange Change);
+
+public sealed record AdoBranchComparison(int Ahead, int Behind, string? CommonCommit);
+
 /// <summary>Permission bits of the Git Repositories security namespace (from Security Namespaces - Query).</summary>
 public static class GitRepositoryPermissions
 {
