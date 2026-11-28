@@ -85,6 +85,33 @@ export function emptyState(text, action, title) {
   return h('div', { class: 'empty' }, h('div', { class: 'icon', 'aria-hidden': 'true' }, '+'), title ? h('h2', {}, title) : null, h('p', {}, text), button);
 }
 
+const pad2 = n => String(n).padStart(2, '0');
+export function clock(date = new Date()) { return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`; }
+
+/**
+ * The reusable stats strip: counts on the left, "updated HH:MM:SS every 10 s" and a Refresh button on the right.
+ * `counts` is a list of [label, value]; `onRefresh` may return new counts. Returns the element with
+ * `update(counts)` to redraw the counts and `stop()` to end the 10 s timer.
+ */
+export function statsStrip({ counts = [], onRefresh, every = 10000 } = {}) {
+  const left = h('div', { class: 'stats-counts' });
+  const stamp = h('span', { class: 'stats-updated' });
+  const el = h('div', { class: 'stats-strip', role: 'group', 'aria-label': 'Counts' });
+  const draw = list => { left.replaceChildren(); for (const [label, value] of list) left.append(h('span', { class: 'stat' }, h('b', {}, String(value)), ' ' + label)); };
+  const touch = () => { stamp.textContent = `updated ${clock()} every ${Math.round(every / 1000)} s`; };
+  const run = async () => {
+    try { const next = onRefresh ? await onRefresh() : null; if (Array.isArray(next)) draw(next); }
+    finally { touch(); }
+  };
+  const button = h('button', { type: 'button', class: 'sm', onclick: () => run().catch(e => toast(e.message, true)) }, 'Refresh');
+  draw(counts); touch();
+  el.append(left, h('div', { class: 'stats-right' }, stamp, button));
+  const timer = every > 0 ? setInterval(() => { if (!document.hidden && el.isConnected) run().catch(() => {}); }, every) : null;
+  el.update = draw;
+  el.stop = () => { if (timer) clearInterval(timer); };
+  return el;
+}
+
 export function loading(text = 'Loading…') {
   return h('div', { class: 'loading', role: 'status' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), text);
 }
