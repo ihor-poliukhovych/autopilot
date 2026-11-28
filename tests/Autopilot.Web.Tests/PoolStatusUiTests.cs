@@ -186,6 +186,60 @@ public sealed class PoolStatusUiTests
     }
 
     [Fact]
+    public void A_unit_is_a_suffix_inside_the_number_field_wrapper()
+    {
+        var js = Wwwroot("js/poolunattended.js");
+        Assert.Contains("h('span', { class: 'pool-numbox' }, input, unit ? h('span', { class: 'pool-unit'", js);
+        Assert.Contains("n => ({ stopAtUsagePercent: n }), '%')", js);
+        Assert.DoesNotContain("pool-with-unit", js);
+    }
+
+    [Fact]
+    public void Number_fields_share_one_box_and_the_unit_is_right_aligned()
+    {
+        var css = Wwwroot("app.css");
+        Assert.Contains(".pool-numbox { display: inline-flex; align-items: center; box-sizing: border-box; width: 6rem; height: var(--h-control);", css);
+        Assert.Contains("text-align: right", css[css.IndexOf(".pool-numbox input.pool-num", StringComparison.Ordinal)..]);
+        Assert.Contains(".pool-unit {", css);
+        Assert.Contains(".pool-set { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 48px;", css);
+    }
+
+    [Fact]
+    public void The_schedule_form_is_a_two_column_grid_that_becomes_one_column_on_a_phone()
+    {
+        var css = Wwwroot("app.css");
+        Assert.Contains(".pool-sched-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));", css);
+        var phone = css[css.IndexOf("@media (max-width: 640px)", css.IndexOf(".pool-sched-grid", StringComparison.Ordinal), StringComparison.Ordinal)..];
+        Assert.Contains(".pool-sched-grid { grid-template-columns: minmax(0, 1fr); }", phone);
+        Assert.Contains(".pool-sched .field select { box-sizing: border-box; width: 100%; height: var(--h-control);", css.Replace(".pool-sched .field input:not([type=\"checkbox\"]), ", ""));
+    }
+
+    [Fact]
+    public void The_schedule_form_has_one_help_line_a_primary_and_a_secondary_button_and_marks_optional_once()
+    {
+        var js = Wwwroot("js/poolunattended.js");
+        Assert.DoesNotContain("Nothing is scheduled.", js);
+        Assert.Contains("'Review and schedule')", js);
+        Assert.Contains("class: 'primary'", js);
+        Assert.Contains("class: 'secondary', onclick: () => closeForm() }, 'Cancel')", js);
+        Assert.Contains("'Stop starting tasks at (optional)'", js);
+        Assert.Contains("'Most tasks (optional)'", js);
+        Assert.DoesNotContain("'Optional.'", js);
+        Assert.Equal(1, js.Split("It runs on this computer, as your user. Results are drafts").Length - 1);
+    }
+
+    [Fact]
+    public void The_schedule_row_says_Not_scheduled_when_unset_and_the_plan_when_set()
+    {
+        var js = Wwwroot("js/poolunattended.js");
+        Assert.Contains("export function scheduleSummaryText(schedule)", js);
+        Assert.Contains("if (!schedule.set) return 'Not scheduled';", js);
+        // 'every day 02:00' with an until of 06:00 reads 'Every day 02:00, stops starting at 06:00'.
+        Assert.Contains("when.charAt(0).toUpperCase()}${when.slice(1)}${p.until ? `, stops starting at ${p.until}` : ''}", js);
+        Assert.Contains("scheduleSummaryText(schedule)", js);
+    }
+
+    [Fact]
     public void An_override_marker_is_drawn_only_where_the_api_sends_the_project_default()
     {
         var unattended = Wwwroot("js/poolunattended.js");

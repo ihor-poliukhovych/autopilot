@@ -506,13 +506,17 @@ button.pool-menu-item:disabled { opacity: .4; }
 .pool-panel-title .hint { display: block; margin-top: 2px; line-height: 1.4; }
 .pool-chev { display: none; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-bottom: 2px solid var(--muted); transform: rotate(45deg); flex: none; margin: 0 4px; }
 .pool-panel[open] .pool-chev { transform: rotate(-135deg); }
-.pool-set { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 52px; padding: 6px 18px; border-top: 1px solid var(--border); }
+.pool-set { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); min-height: 48px; padding: var(--sp-6) 18px; border-top: 1px solid var(--border); }
 .pool-set .what { min-width: 0; flex: 1; }
 .pool-set label { font-weight: 600; }
 .pool-set .hint { margin: 1px 0 0; font-size: var(--fs-xs); line-height: 1.35; }
 .pool-set .control { flex: none; display: flex; align-items: center; justify-content: flex-end; }
-.pool-with-unit { display: inline-flex; align-items: center; gap: 6px; }
-input.pool-num { width: 4.5rem; min-height: 40px; text-align: right; padding: .3rem .55rem; }
+input.pool-num { width: 4.5rem; min-height: var(--h-control); text-align: right; padding: .3rem .55rem; }
+/* One box for every number field in the panel; a unit sits inside it as a right-aligned suffix. */
+.pool-numbox { display: inline-flex; align-items: center; box-sizing: border-box; width: 6rem; height: var(--h-control); padding: 0 var(--sp-8); border: 1px solid var(--border-strong); border-radius: var(--radius-sm); background: var(--surface); }
+.pool-numbox:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
+.pool-numbox input.pool-num { flex: 1; min-width: 0; width: 100%; min-height: 0; height: 100%; padding: 0; border: 0; outline: 0; background: transparent; text-align: right; box-shadow: none; }
+.pool-unit { flex: none; margin-left: var(--sp-4); color: var(--muted); font-size: var(--fs-body); }
 .pool-seg { display: inline-flex; border: 1px solid var(--border-strong); border-radius: var(--radius-sm); overflow: hidden; }
 .pool-seg-item { position: relative; display: flex; border-left: 1px solid var(--border-strong); }
 .pool-seg-item:first-child { border-left: 0; }
@@ -525,7 +529,18 @@ input.pool-switch { appearance: none; -webkit-appearance: none; width: 40px; hei
 input.pool-switch::after { content: ""; position: absolute; left: 3px; top: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--surface); transition: left .12s; }
 input.pool-switch:checked { background: var(--accent); }
 input.pool-switch:checked::after { left: 19px; background: var(--accent-text); }
-.pool-sched { padding: var(--s3) 18px 18px; border-top: 1px solid var(--border); }
+.pool-sched { display: flex; flex-direction: column; gap: var(--sp-10); padding: var(--sp-12) 18px var(--sp-16); border-top: 1px solid var(--border); }
+.pool-sched[hidden] { display: none; }
+.pool-sched-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sp-10) var(--sp-12); }
+.pool-sched .field { display: flex; flex-direction: column; gap: var(--sp-4); margin: 0; min-width: 0; }
+.pool-sched .lbl { font-size: var(--fs-sm); font-weight: 600; }
+.pool-sched .field input:not([type="checkbox"]), .pool-sched .field select { box-sizing: border-box; width: 100%; height: var(--h-control); min-height: var(--h-control); }
+.pool-sched-check { display: flex; align-items: center; gap: var(--sp-8); height: var(--h-control); }
+.pool-sched-days { display: flex; flex-wrap: wrap; gap: var(--sp-8) var(--sp-12); }
+.pool-sched-days[hidden] { display: none; }
+.pool-sched-now { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12); }
+.pool-sched .hint, .pool-sched-now .hint { margin: 0; font-size: var(--fs-xs); line-height: 1.35; }
+.pool-sched-actions { display: flex; gap: var(--sp-8); justify-content: flex-end; }
 
 /* run confirmation */
 .pool-sum { display: grid; grid-template-columns: 150px minmax(0, 1fr); margin: 0; }
@@ -568,6 +583,10 @@ input.pool-switch:checked::after { left: 19px; background: var(--accent-text); }
   .pool-head { padding: 12px 14px 10px; }
   .pool-ev { padding: 8px 14px; }
   .pool-set { padding: 6px 14px; }
+  .pool-sched { padding-left: 14px; padding-right: 14px; }
+  .pool-sched-grid { grid-template-columns: minmax(0, 1fr); }
+  .pool-sched-now { flex-direction: column; align-items: flex-start; }
+  .pool-sched-actions > button { flex: 1; }
   .pool-sum { grid-template-columns: minmax(0, 1fr); }
   .pool-sum dt { padding-bottom: 0; }
   .pool-sum dd { border-top: 0; padding-top: 2px; }
