@@ -12,7 +12,7 @@ public class TargetBranchTests
     {
         string[] branches = ["main", "release/release-7.14.2", "release/release-7.14.10", "release/release-7.14.3", "release/release-7.13.9", "release/release-7.140.1"];
 
-        var result = TargetBranchResolver.Resolve("Go-OPS\\2026\\7.14", Template, branches);
+        var result = TargetBranchResolver.Resolve("Contoso\\2026\\7.14", Template, branches);
 
         Assert.True(result.Found);
         Assert.Equal("release/release-7.14.10", result.Branch);
@@ -21,7 +21,7 @@ public class TargetBranchTests
     [Fact]
     public void Three_over_two_when_both_match()
     {
-        var result = TargetBranchResolver.Resolve("Go-OPS\\2026\\7.14", Template, ["release/release-7.14.2", "release/release-7.14.3"]);
+        var result = TargetBranchResolver.Resolve("Contoso\\2026\\7.14", Template, ["release/release-7.14.2", "release/release-7.14.3"]);
 
         Assert.Equal("release/release-7.14.3", result.Branch);
     }
@@ -29,7 +29,7 @@ public class TargetBranchTests
     [Fact]
     public void No_matching_branch_is_a_no_match_not_main()
     {
-        var result = TargetBranchResolver.Resolve("Go-OPS\\2026\\7.15", Template, ["main", "release/release-7.14.2"]);
+        var result = TargetBranchResolver.Resolve("Contoso\\2026\\7.15", Template, ["main", "release/release-7.14.2"]);
 
         Assert.False(result.Found);
         Assert.Null(result.Branch);
@@ -37,7 +37,7 @@ public class TargetBranchTests
     }
 
     [Theory]
-    [InlineData("Go-OPS\\2026\\Backlog")]
+    [InlineData("Contoso\\2026\\Backlog")]
     [InlineData("")]
     [InlineData(null)]
     public void Iteration_without_a_version_is_a_no_match(string? iteration)
@@ -53,7 +53,7 @@ public class TargetBranchTests
     [InlineData("  ")]
     public void Unset_template_is_a_no_match(string? template)
     {
-        var result = TargetBranchResolver.Resolve("Go-OPS\\2026\\7.14", template, ["release/release-7.14.2"]);
+        var result = TargetBranchResolver.Resolve("Contoso\\2026\\7.14", template, ["release/release-7.14.2"]);
 
         Assert.False(result.Found);
     }

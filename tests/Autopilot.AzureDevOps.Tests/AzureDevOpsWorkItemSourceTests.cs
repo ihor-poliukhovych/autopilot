@@ -156,9 +156,9 @@ public class AzureDevOpsWorkItemSourceTests
         var item = new AdoWorkItem(6, 1, new Dictionary<string, JsonElement>
         {
             ["System.Title"] = JsonDocument.Parse("\"T\"").RootElement,
-            ["System.IterationPath"] = JsonDocument.Parse("\"Go-OPS\\\\2026\\\\7.14\"").RootElement,
+            ["System.IterationPath"] = JsonDocument.Parse("\"Contoso\\\\2026\\\\7.14\"").RootElement,
         });
 
-        Assert.Equal("Go-OPS\\2026\\7.14", AzureDevOpsWorkItemSource.ToWorkItem(item).Iteration);
+        Assert.Equal("Contoso\\2026\\7.14", AzureDevOpsWorkItemSource.ToWorkItem(item).Iteration);
     }
 }

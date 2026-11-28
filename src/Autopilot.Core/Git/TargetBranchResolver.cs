@@ -14,7 +14,7 @@ public sealed record TargetBranchResolution(string? Branch, string? Reason)
 }
 
 /// <summary>
-/// Pure mapping from a version string such as <c>Go-OPS\2026\7.14</c> to the newest existing branch that
+/// Pure mapping from a version string such as <c>Contoso\2026\7.14</c> to the newest existing branch that
 /// fits a template such as <c>release/release-{major}.{minor}.*</c>. Never falls back to another branch.
 /// </summary>
 public static partial class TargetBranchResolver
