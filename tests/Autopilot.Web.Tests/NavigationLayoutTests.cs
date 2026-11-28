@@ -17,6 +17,29 @@ public sealed class NavigationLayoutTests
     }
 
     [Fact]
+    public void Main_is_full_width_with_the_gutter_and_the_stats_strip_is_34px()
+    {
+        var css = Wwwroot("app.css");
+        var main = Regex.Match(css, @"^main \{([^}]*)\}", RegexOptions.Multiline).Groups[1].Value;
+        Assert.DoesNotContain("max-width", main);
+        Assert.DoesNotContain("auto", main);
+        Assert.Contains("var(--gutter)", main);
+        var strip = Regex.Match(css, @"^\.stats-strip \{([^}]*)\}", RegexOptions.Multiline).Groups[1].Value;
+        Assert.Contains("height: 34px", strip);
+        Assert.DoesNotContain("overflow", strip);
+    }
+
+    [Fact]
+    public void Stats_strip_helper_is_exported_and_shown_on_the_pool_view()
+    {
+        var dom = Wwwroot("js/dom.js");
+        Assert.Contains("export function statsStrip(", dom);
+        Assert.Contains("'Refresh'", dom);
+        Assert.Contains("updated ${clock()} every", dom);
+        Assert.Contains("statsStrip({", Wwwroot("js/app.js"));
+    }
+
+    [Fact]
     public void Tab_bar_is_exactly_Inbox_Tasks_Pipeline_Pool_Settings_in_order()
     {
         var js = Wwwroot("js/app.js");
