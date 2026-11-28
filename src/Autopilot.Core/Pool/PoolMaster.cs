@@ -185,8 +185,19 @@ public static class MasterGuard
 }
 
 /// <summary>The master as a Claude Code run (<c>claude -p</c>) with read-only tools.</summary>
-public sealed class ClaudePoolMaster(IAgentRunner runner, PoolMasterConfig config, string workingDirectory, string runFolder, string rules) : IPoolMaster
+public sealed class ClaudePoolMaster(
+    IAgentRunner runner,
+    PoolMasterConfig config,
+    string workingDirectory,
+    string runFolder,
+    string rules,
+    Git.GitClient? git = null,
+    Func<string?>? integrationBranch = null,
+    string? worktreeRoot = null) : IPoolMaster
 {
+    /// <summary>Name prefix of the master's worktree; '@' cannot appear in an id, and it differs from "@triage".</summary>
+    public const string WorktreeNamePrefix = "@master-";
+
     private const string AnswerSchema = """
         {"type":"object","additionalProperties":false,
          "required":["decide","option","answer","reason","category","reversible"],
@@ -283,8 +294,29 @@ public sealed class ClaudePoolMaster(IAgentRunner runner, PoolMasterConfig confi
         var folder = Path.Combine(runFolder, $"{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid().ToString("N")[..6]}-{name}");
         Directory.CreateDirectory(folder);
         var role = new RoleConfig { Model = config.Model, MaxToolCalls = 12, AllowedTools = ["Read", "Grep", "Glob"] };
-        var run = await runner.RunAsync(new AgentRunRequest(AgentRole.Triage, workingDirectory, system, prompt, role, [], schema, folder), ct).ConfigureAwait(false);
-        return run.Succeeded ? run.StructuredOutput : null;
+
+        // With an integration branch the master reads that branch (the code earlier pool tasks added), in its own
+        // worktree outside the project. Without one it reads the project folder as before.
+        string? worktree = null;
+        if (git is not null && worktreeRoot is not null && integrationBranch?.Invoke() is { } branch
+            && await git.ResolveBranchAsync(branch, ct).ConfigureAwait(false) is { } resolved)
+        {
+            worktree = Path.Combine(worktreeRoot, WorktreeNamePrefix + Guid.NewGuid().ToString("N")[..8]);
+            await git.AddDetachedWorktreeAsync(worktree, resolved.Commit, ct).ConfigureAwait(false);
+        }
+
+        try
+        {
+            var run = await runner.RunAsync(new AgentRunRequest(AgentRole.Triage, worktree ?? workingDirectory, system, prompt, role, [], schema, folder), ct).ConfigureAwait(false);
+            return run.Succeeded ? run.StructuredOutput : null;
+        }
+        finally
+        {
+            if (worktree is not null && Directory.Exists(worktree))
+            {
+                await git!.RemoveWorktreeAsync(worktree).ConfigureAwait(false);
+            }
+        }
     }
 
     private static string Text(JsonElement json, string name) =>

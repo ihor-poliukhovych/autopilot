@@ -117,7 +117,8 @@ internal static class PoolUnattendedCommands
         }
 
         var master = new ClaudePoolMaster(ProjectServices.CreateRunner(context, config), config.Pool.Master, repoRoot,
-            Path.Combine(workspace.ProjectFolder(project.Key), "pool-master"), ReadRules(settings));
+            Path.Combine(workspace.ProjectFolder(project.Key), "pool-master"), ReadRules(settings),
+            git, () => branch, worktreeRoot);
         var runner = new PoolRunner(new PoolService(workspace, project.Key), new Autopilot.Core.Runs.RunStore(workspace, project.Key),
             new ProjectRunLock(workspace, context.IsProcessAlive), project.Key, pipeline.ImplementAsync,
             new PoolRunOptions
