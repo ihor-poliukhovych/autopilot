@@ -22,7 +22,8 @@ public sealed class PipelinePoolTasks(
     AutopilotConfig config,
     IntegrationService? integration,
     PoolStateStore? state = null,
-    TimeProvider? clock = null) : IPoolTasks
+    TimeProvider? clock = null,
+    string? dataFolder = null) : IPoolTasks
 {
     private readonly SemaphoreSlim _triageGate = new(1, 1);
 
@@ -158,6 +159,7 @@ public sealed class PipelinePoolTasks(
             return null;
         }
 
-        return await integration.MergeAsync(result.WorkItemId, result.BranchName, ct).ConfigureAwait(false);
+        return await integration.MergeAsync(result.WorkItemId, result.BranchName, ct,
+            Path.Combine(ProjectPaths.RunFolder(git.RepositoryPath, result.WorkItemId, dataFolder), "post-merge-check.log")).ConfigureAwait(false);
     }
 }

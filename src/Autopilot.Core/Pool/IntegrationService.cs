@@ -96,7 +96,7 @@ public sealed class IntegrationService(
     /// Merges a task branch into the integration branch with a merge commit, then builds and tests the result.
     /// When the merge conflicts or the build or tests fail, the integration branch is put back as it was.
     /// </summary>
-    public async Task<IntegrationResult> MergeAsync(string workItemId, string taskBranch, CancellationToken ct)
+    public async Task<IntegrationResult> MergeAsync(string workItemId, string taskBranch, CancellationToken ct, string? checkLogPath = null)
     {
         var branch = CurrentBranch() ?? throw new GitException("There is no integration branch yet.");
         Guard(branch);
@@ -109,7 +109,7 @@ public sealed class IntegrationService(
         await _mergeGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            return await MergeLockedAsync(workItemId, taskBranch, branch, ct).ConfigureAwait(false);
+            return await MergeLockedAsync(workItemId, taskBranch, branch, checkLogPath, ct).ConfigureAwait(false);
         }
         finally
         {
@@ -117,7 +117,7 @@ public sealed class IntegrationService(
         }
     }
 
-    private async Task<IntegrationResult> MergeLockedAsync(string workItemId, string taskBranch, string branch, CancellationToken ct)
+    private async Task<IntegrationResult> MergeLockedAsync(string workItemId, string taskBranch, string branch, string? checkLogPath, CancellationToken ct)
     {
         var worktree = Path.Combine(worktreeRoot, WorktreeName);
         await RemoveAsync(worktree).ConfigureAwait(false);
@@ -134,8 +134,15 @@ public sealed class IntegrationService(
             var (ok, message) = await _verify(worktree, ct).ConfigureAwait(false);
             if (!ok)
             {
-                await git.ResetHardAsync(worktree, before, ct).ConfigureAwait(false);
-                return new IntegrationResult(false, $"Build or tests failed after merging task {workItemId} into {branch}; the merge was undone. {message}");
+                // A transient environment error must not undo good work: check once more on a fresh checkout of the merged result.
+                var retry = await VerifyFreshAsync(head, ct).ConfigureAwait(false);
+                if (!retry.Ok)
+                {
+                    SaveCheckLog(checkLogPath, message, retry.Message);
+                    await git.ResetHardAsync(worktree, before, ct).ConfigureAwait(false);
+                    var errors = FirstErrorLines(message);
+                    return new IntegrationResult(false, $"Build or tests failed after merging task {workItemId} into {branch}; the merge was undone. {(errors.Length > 0 ? errors : message)}");
+                }
             }
 
             using var connection = workspace.Open();
@@ -148,6 +155,49 @@ public sealed class IntegrationService(
             await RemoveAsync(worktree).ConfigureAwait(false);
         }
     }
+
+    private async Task<(bool Ok, string Message)> VerifyFreshAsync(string commit, CancellationToken ct)
+    {
+        var fresh = Path.Combine(worktreeRoot, WorktreeName + "-check");
+        await RemoveAsync(fresh).ConfigureAwait(false);
+        await git.AddDetachedWorktreeAsync(fresh, commit, ct).ConfigureAwait(false);
+        try
+        {
+            return await _verify(fresh, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            await RemoveAsync(fresh).ConfigureAwait(false);
+        }
+    }
+
+    private static void SaveCheckLog(string? path, string first, string retry)
+    {
+        if (path is null)
+        {
+            return;
+        }
+
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path))!);
+            File.WriteAllText(path, $"=== Check after the merge ===\n{first}\n\n=== Retry on a fresh checkout ===\n{retry}\n");
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
+    }
+
+    /// <summary>The first lines of the output that mention an error, joined for a short reason.</summary>
+    internal static string FirstErrorLines(string output) =>
+        string.Join(" | ", output.ReplaceLineEndings("\n").Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.Contains("error", StringComparison.OrdinalIgnoreCase) && !l.Contains("Error(s)", StringComparison.OrdinalIgnoreCase))
+            .Distinct(StringComparer.Ordinal)
+            .Take(5));
 
     public IntegrationInfo Info()
     {
@@ -259,8 +309,7 @@ public sealed class IntegrationService(
             var result = await ShellRunner.RunAsync(command, path, TimeSpan.FromMinutes(30), null, ct, config.PassEnvironment).ConfigureAwait(false);
             if (!result.Succeeded)
             {
-                var tail = string.Join(' ', (result.StandardOutput + result.StandardError).ReplaceLineEndings("\n").Split('\n').TakeLast(5)).Trim();
-                return (false, $"The {name} command failed (exit code {result.ExitCode}): {tail}");
+                return (false, $"The {name} command failed (exit code {result.ExitCode}).\n{result.StandardOutput}\n{result.StandardError}".Trim());
             }
         }
 
