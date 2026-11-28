@@ -549,19 +549,22 @@ public sealed class PoolOperations(WebUiOptions options)
             return new PoolQueueTaskView(id, entry?.Title ?? id, Readiness(id, entry, parkedIds, inPoolSet));
         }).ToList();
 
+        var slotList = state.Slots();
+        var currentPause = state.CurrentPause();
+        var personPause = PersonPauseStatus(currentPause, slotList);
         return new PoolStatusView(
             new PoolSettingsView(pool.Unattended, pool.Concurrency, Autopilot.Core.Config.PoolConfig.MaxConcurrency, pool.Master.Enabled, pool.Integration.Enabled,
                 pool.Budget.MaxAgentRuns, pool.Budget.StopAtUsagePercent, pool.AlwaysAsk, pool.OnFailure.Retries),
-            [.. state.Slots().Select(s => new PoolSlotView(s.WorkItemId, titles.GetValueOrDefault(s.WorkItemId, s.WorkItemId), s.State, s.Detail, s.Since))],
-            state.CurrentPause(),
+            [.. slotList.Select(s => new PoolSlotView(s.WorkItemId, titles.GetValueOrDefault(s.WorkItemId, s.WorkItemId), s.State, s.Detail, s.Since))],
+            currentPause,
             parked,
             state.Decisions(50),
             state.RevertedCount(),
             integration,
             scope.Lock.Holder(scope.Project.Key) is not null)
         {
-            Status = snapshot.State.Status.ToString(),
-            SubStatus = snapshot.State.Sub.ToString(),
+            Status = personPause?.Status ?? snapshot.State.Status.ToString(),
+            SubStatus = personPause?.SubStatus ?? snapshot.State.Sub.ToString(),
             Progress = new PoolRunProgressView(snapshot.Progress.Done, snapshot.Progress.Total, snapshot.Progress.Parked),
             Timeline = [.. runEvents.Select(e => new PoolTimelineEntryView(e.At, e.Event.ToString(), e.Detail) { TaskId = e.TaskId })],
             Queue = queue,
@@ -639,6 +642,22 @@ public sealed class PoolOperations(WebUiOptions options)
 
         return removed;
     }
+
+    /// <summary>Pauses the pool at a person's request. Idempotent; returns the same status as the other pool endpoints.</summary>
+    public Task<PoolStatusView> PauseAsync(ProjectScope scope, CancellationToken ct)
+    {
+        new PoolStateStore(scope.Workspace, scope.Project.Key).PauseByPerson(DateTimeOffset.UtcNow);
+        return StatusAsync(scope, ct);
+    }
+
+    /// <summary>
+    /// The status and sub-status a person pause shows: "Paused" with "finishing current tasks" while a task still
+    /// runs, and no sub-status once none does. Null when the pause is not a person pause.
+    /// </summary>
+    public static (string Status, string SubStatus)? PersonPauseStatus(PoolPause? pause, IEnumerable<PoolSlot> slots) =>
+        pause is not null && PoolStateStore.IsPersonPause(pause)
+            ? ("Paused", slots.Any(s => s.State == "running") ? PoolStateStore.FinishingCurrentTasks : nameof(PoolRunSubStatus.None))
+            : null;
 
     public bool Resume(ProjectScope scope) => new PoolStateStore(scope.Workspace, scope.Project.Key).Resume();
 

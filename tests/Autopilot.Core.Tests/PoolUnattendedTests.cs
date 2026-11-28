@@ -817,6 +817,87 @@ public sealed class PoolUnattendedTests : IDisposable
     }
 
     [Fact]
+    public void A_person_pause_has_no_retry_time_is_idempotent_and_resume_removes_it()
+    {
+        Assert.True(_state.PauseByPerson(_clock.GetUtcNow()));
+        Assert.False(_state.PauseByPerson(_clock.GetUtcNow().AddHours(1)));
+
+        var pause = _state.CurrentPause()!;
+        Assert.Equal("Paused by a person", pause.Reason);
+        Assert.Null(pause.RetryAt);
+        Assert.Equal(_clock.GetUtcNow(), pause.CreatedAt);
+        Assert.True(PoolStateStore.IsPersonPause(pause));
+
+        _state.Pause("Budget used up. x", _clock.GetUtcNow().AddHours(2), _clock.GetUtcNow()); // does not replace a person pause
+        Assert.Equal("Paused by a person", _state.CurrentPause()!.Reason);
+
+        Assert.True(_state.Resume());
+        Assert.Null(_state.CurrentPause());
+    }
+
+    [Fact]
+    public void A_person_pause_does_not_overwrite_a_budget_pause_and_keeps_its_retry_time()
+    {
+        var retry = _clock.GetUtcNow().AddHours(3);
+        _state.Pause("Budget used up, resets at x.", retry, _clock.GetUtcNow());
+
+        Assert.False(_state.PauseByPerson(_clock.GetUtcNow()));
+
+        var pause = _state.CurrentPause()!;
+        Assert.StartsWith("Budget used up", pause.Reason, StringComparison.Ordinal);
+        Assert.Equal(retry, pause.RetryAt);
+    }
+
+    [Fact]
+    public async Task A_run_with_a_person_pause_starts_no_task_and_keeps_the_pause_and_the_queue()
+    {
+        Add("1", "2");
+        _state.PauseByPerson(_clock.GetUtcNow());
+        _clock.Advance(TimeSpan.FromDays(3)); // no expiry by time
+        var calls = 0;
+
+        var result = await RunAsync(id => { calls++; return Task.FromResult(Result(id, ImplementOutcome.Published)); });
+
+        Assert.Equal(0, calls);
+        Assert.Contains("paused by a person", result.StoppedBecause, StringComparison.Ordinal);
+        Assert.Equal("Paused by a person", _state.CurrentPause()!.Reason);
+        Assert.Equal(2, _pool.List().Count);
+    }
+
+    [Fact]
+    public async Task A_pause_set_while_the_run_goes_lets_the_started_task_finish_and_starts_no_other()
+    {
+        Add("1", "2");
+        var started = new List<string>();
+
+        var result = await RunAsync(id =>
+        {
+            started.Add(id);
+            _state.PauseByPerson(_clock.GetUtcNow()); // a person pauses while task 1 works
+            return Task.FromResult(Result(id, ImplementOutcome.Published));
+        });
+
+        Assert.Equal(["1"], started);
+        Assert.Single(result.Done); // the started task finished normally
+        Assert.Contains("paused by a person", result.StoppedBecause, StringComparison.Ordinal);
+        Assert.Equal(["2"], _pool.List().Select(e => e.WorkItemId));
+        Assert.NotNull(_state.CurrentPause());
+    }
+
+    [Fact]
+    public async Task Resume_lifts_a_person_pause_and_the_next_run_starts_tasks()
+    {
+        Add("1");
+        _state.PauseByPerson(_clock.GetUtcNow());
+        Assert.True(_state.Resume());
+
+        var result = await RunAsync(id => Task.FromResult(Result(id, ImplementOutcome.Published)));
+
+        Assert.Single(result.Done);
+        Assert.Null(result.StoppedBecause);
+    }
+
+    [Fact]
     public void Pruning_deletes_parked_entries_of_tasks_that_are_not_open_any_more()
     {
         _state.Park("1", "paid", "Closed since.", _clock.GetUtcNow());
