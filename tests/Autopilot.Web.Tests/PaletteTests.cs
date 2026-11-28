@@ -113,6 +113,49 @@ public sealed class PaletteTests
     }
 
     [Fact]
+    public void Gutter_token_is_used_for_panel_and_column_gaps()
+    {
+        var css = Css();
+        Assert.Matches(@"\.app-layout\s*\{[^}]*gap: var\(--gutter\)", css);
+        Assert.Matches(@"\.split\s*\{[^}]*gap: var\(--gutter\)", css);
+        Assert.Matches(@"\.pool-main\s*\{[^}]*gap: var\(--gutter\)", css);
+        Assert.Matches(@"\.pool-right\s*\{[^}]*gap: var\(--gutter\)", css);
+        Assert.Matches(@"\.pool-live\s*\{[^}]*gap: var\(--gutter\)", css);
+    }
+
+    [Fact]
+    public void Check_rows_and_icon_buttons_use_the_height_tokens_not_fixed_pixels()
+    {
+        var css = Css();
+        Assert.Matches(@"\.check-row\s*\{[^}]*min-height: var\(--h-control\)", css);
+        Assert.Matches(@"\.icon-btn\s*\{[^}]*min-height: var\(--h-control\)[^}]*width: var\(--h-control\)", css);
+    }
+
+    [Fact]
+    public void Touch_query_is_exactly_coarse_pointer_or_phone_width()
+    {
+        // Intended OR: a coarse pointer on a wide tablet and a narrow desktop window both need 44px targets.
+        var css = Css();
+        Assert.Single(Regex.Matches(css, @"@media \(pointer: coarse\)[^{]*\{"));
+        Assert.Contains("@media (pointer: coarse), (max-width: 640px) {", css);
+    }
+
+    [Fact]
+    public void Docs_record_the_computed_accent_on_accent_soft_ratio_for_both_themes()
+    {
+        var (light, auto, _) = Blocks();
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir is not null && !File.Exists(Path.Combine(dir.FullName, "docs", "ui-tokens.md"))) dir = dir.Parent;
+        Assert.NotNull(dir);
+        var doc = File.ReadAllText(Path.Combine(dir!.FullName, "docs", "ui-tokens.md"));
+        var row = doc.Split('\n').Single(l => l.StartsWith("| `--accent` on `--accent-soft`"));
+        var dark = Contrast(Token(auto, "--accent"), Token(auto, "--accent-soft")).ToString("F2", CultureInfo.InvariantCulture);
+        var lt = Contrast(Token(light, "--accent"), Token(light, "--accent-soft")).ToString("F2", CultureInfo.InvariantCulture);
+        Assert.Contains(dark, row);
+        Assert.Contains(lt, row);
+    }
+
+    [Fact]
     public void Every_var_reference_resolves_to_a_defined_token()
     {
         var wwwroot = Path.GetDirectoryName(FindApp())!;

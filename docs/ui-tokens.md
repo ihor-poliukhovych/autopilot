@@ -75,6 +75,13 @@ Old names: `--radius` = panel, `--radius-sm` = control, `--radius-pill` 999px.
 `--fs-body` to 14px and raises `--h-control`, `--h-row-control`, `--h-hit`, `--h-topbar` and `--h-tab` to 44px
 (`--h-chip` to 32px). Controls therefore keep a 44px minimum height there.
 
+The query is an OR on purpose: a coarse pointer on a wide tablet and a narrow window with a mouse both
+need the 44px targets and the 14px body. An AND would leave tablets on the compact desktop sizes.
+A test pins the exact query string.
+
+`--gutter` (10px) is the gap between panels and columns (`.app-layout`, `.split`, `.pool-main`,
+`.pool-right`, `.pool-live`). `.check-row` and `.icon-btn` use `--h-control` (44px on touch).
+
 ## Contrast (WCAG 2.x, AA needs 4.5:1)
 
 | Pair | Dark on `--bg` | Dark on `--surface` | Light on `--bg` | Light on `--surface` |
@@ -95,5 +102,5 @@ Badges and buttons:
 | `--ok` on `--ok-soft` | 6.01 | 5.06 |
 | `--warn` on `--warn-soft` | 6.98 | 5.28 |
 | `--bad` on `--bad-soft` | 4.57 | 5.23 |
-| `--accent` on `--accent-soft` | 5.52 | about 4.8 (tested >= 4.5) |
+| `--accent` on `--accent-soft` | 5.52 | 4.76 |
 | `--accent-text` on `--accent` | 6.99 | 5.42 |

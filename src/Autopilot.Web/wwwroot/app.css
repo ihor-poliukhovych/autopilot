@@ -109,7 +109,7 @@ button.ghost:hover { background: var(--accent-soft); }
 button.sm, .btn.sm { min-height: var(--h-row-control); padding: .1rem .65rem; font-size: var(--fs-sm); position: relative; }
 button.sm::after, .btn.sm::after { content: ""; position: absolute; left: 0; right: 0; top: 50%; height: var(--h-hit); transform: translateY(-50%); }
 button:disabled { opacity: .5; cursor: not-allowed; }
-.icon-btn { padding: .4rem; min-height: 36px; width: 36px; justify-content: center; }
+.icon-btn { padding: .4rem; min-height: var(--h-control); width: var(--h-control); justify-content: center; }
 
 /* forms */
 label.field { display: block; }
@@ -128,7 +128,7 @@ legend { font-weight: 600; padding: 0 .4rem; }
 
 input[type="checkbox"], input[type="radio"] { width: 1.25rem; height: 1.25rem; min-height: 0; padding: 0; accent-color: var(--accent); flex: none; }
 input[type="range"] { padding: 0; min-height: var(--h-control); accent-color: var(--accent); }
-.check-row { display: flex; gap: var(--s2); align-items: center; min-height: 44px; margin: 0 0 var(--s3); }
+.check-row { display: flex; gap: var(--s2); align-items: center; min-height: var(--h-control); margin: 0 0 var(--s3); }
 
 /* settings: label and explanation on the left, the control on the right */
 .settings { display: grid; }
@@ -273,14 +273,14 @@ dialog .row.end { justify-content: flex-end; margin-top: var(--s4); }
 .tl .name { font-weight: 650; display: flex; gap: var(--s2); align-items: baseline; flex-wrap: wrap; }
 .tl .dur { font-size: var(--fs-sm); color: var(--muted); font-weight: 500; }
 .tl .detail { color: var(--muted); font-size: var(--fs-sm); margin-top: .1rem; }
-.split { display: grid; gap: var(--s4); grid-template-columns: minmax(260px, 340px) 1fr; align-items: start; }
+.split { display: grid; gap: var(--gutter); grid-template-columns: minmax(260px, 340px) 1fr; align-items: start; }
 .logtail { max-height: 18rem; }
 
 @media (max-width: 760px) { .split { grid-template-columns: 1fr; } }
 
 /* Shared page layout: a fixed left column and a right column that takes the rest. */
 /* --left-col (340px) is defined with the other tokens at the top. */
-.app-layout { display: grid; gap: var(--s4); grid-template-columns: var(--left-col) minmax(0, 1fr); align-items: start; }
+.app-layout { display: grid; gap: var(--gutter); grid-template-columns: var(--left-col) minmax(0, 1fr); align-items: start; }
 .app-left, .app-right { min-width: 0; }
 .drawer-open, .drawer-close { display: none; }
 
@@ -383,11 +383,11 @@ dialog .row.end { justify-content: flex-end; margin-top: var(--s4); }
 
 
 /* ===== Pool page ===== */
-.pool-right { display: grid; gap: var(--s4); align-content: start; }
+.pool-right { display: grid; gap: var(--gutter); align-content: start; }
 .pool-right > *, .pool-settings > * { margin: 0; }
-.pool-live { display: grid; gap: var(--s4); }
+.pool-live { display: grid; gap: var(--gutter); }
 .pool-live > * { margin: 0; }
-.pool-main { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: var(--s4); align-items: start; }
+.pool-main { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: var(--gutter); align-items: start; }
 .pool-main > .card, .pool-hero { margin: 0; }
 .pool-queue, .pool-events, .pool-panel { padding: 0; }
 .pool-queue { overflow: visible; }
@@ -518,7 +518,7 @@ input.pool-switch:checked::after { left: 19px; background: var(--accent-text); }
 
 /* Phone and tablet: status first, then events, then the queue, then the settings (closed) and the rest. */
 @media (max-width: 900px) {
-  .pool-layout { display: flex; flex-direction: column; gap: var(--s4); }
+  .pool-layout { display: flex; flex-direction: column; gap: var(--gutter); }
   .pool-layout .app-left, .pool-layout .app-right, .pool-main { display: contents; }
   .pool-hero { order: 1; }
   .pool-events { order: 2; }
