@@ -147,5 +147,18 @@ public class AzureDevOpsWorkItemSourceTests
 
         Assert.Equal("## Acceptance criteria\n\nWorks", mapped.Body);
         Assert.Empty(mapped.Labels);
+        Assert.Null(mapped.Iteration);
+    }
+
+    [Fact]
+    public void Iteration_path_is_carried_to_the_work_item()
+    {
+        var item = new AdoWorkItem(6, 1, new Dictionary<string, JsonElement>
+        {
+            ["System.Title"] = JsonDocument.Parse("\"T\"").RootElement,
+            ["System.IterationPath"] = JsonDocument.Parse("\"Go-OPS\\\\2026\\\\7.14\"").RootElement,
+        });
+
+        Assert.Equal("Go-OPS\\2026\\7.14", AzureDevOpsWorkItemSource.ToWorkItem(item).Iteration);
     }
 }

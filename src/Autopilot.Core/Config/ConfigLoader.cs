@@ -186,6 +186,13 @@ public static class ConfigLoader
         problems.AddRange(Autopilot.Core.Git.NamingTemplates.Validate("commitTemplate", config.CommitTemplate, requireId: false));
         problems.AddRange(Autopilot.Core.Git.NamingTemplates.Validate("prTitleTemplate", config.PrTitleTemplate, requireId: false));
 
+        if (config.TargetBranchTemplate is not null
+            && (string.IsNullOrWhiteSpace(config.TargetBranchTemplate)
+                || !Autopilot.Core.Git.TargetBranchResolver.HasWildcardOrPlaceholder(config.TargetBranchTemplate)))
+        {
+            problems.Add($"targetBranchTemplate is \"{config.TargetBranchTemplate}\". It needs a wildcard (*) or a placeholder such as {{major}} or {{minor}}, for example \"release/release-{{major}}.{{minor}}.*\". Remove it to take no target from the task.");
+        }
+
         ValidatePool(config, problems);
 
         if (config.Gate is null)

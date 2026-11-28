@@ -64,7 +64,7 @@ public class AzureDevOpsClientTests
         var body = JsonDocument.Parse(request.Body).RootElement;
         Assert.Equal([299, 297, 1000], body.GetProperty("ids").EnumerateArray().Select(e => e.GetInt32()));
         Assert.Equal(
-            ["System.Id", "System.Title", "System.Description", "Microsoft.VSTS.Common.AcceptanceCriteria", "System.Tags", "System.State", "System.WorkItemType", "System.AssignedTo"],
+            ["System.Id", "System.Title", "System.Description", "Microsoft.VSTS.Common.AcceptanceCriteria", "System.Tags", "System.State", "System.WorkItemType", "System.AssignedTo", "System.IterationPath"],
             body.GetProperty("fields").EnumerateArray().Select(e => e.GetString()));
         Assert.Equal("omit", body.GetProperty("errorPolicy").GetString());
     }

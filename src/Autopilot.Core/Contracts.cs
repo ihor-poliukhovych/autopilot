@@ -6,7 +6,7 @@ namespace Autopilot.Core;
 // ---------- Work items ----------
 
 /// <summary>A task. Url, State and AssignedTo are filled by sources that have them (a tracker), null otherwise.</summary>
-public sealed record WorkItem(string Id, string Title, string Body, IReadOnlyList<string> Labels, string? Url = null, string? State = null, string? AssignedTo = null);
+public sealed record WorkItem(string Id, string Title, string Body, IReadOnlyList<string> Labels, string? Url = null, string? State = null, string? AssignedTo = null, string? Iteration = null);
 
 public enum TriageLabel
 {

@@ -81,7 +81,8 @@ public sealed class AzureDevOpsWorkItemSource(AzureDevOpsClient client, AzureDev
             SplitTags(item.GetString(WorkItemFields.Tags)),
             settings is null ? null : WebUrl(settings, item.Id),
             item.GetString(WorkItemFields.State),
-            item.GetIdentityName(WorkItemFields.AssignedTo));
+            item.GetIdentityName(WorkItemFields.AssignedTo),
+            item.GetString(WorkItemFields.IterationPath));
     }
 
     public static string WebUrl(AzureDevOpsSettings settings, int id) =>
