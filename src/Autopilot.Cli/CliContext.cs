@@ -55,6 +55,9 @@ public sealed record CliContext(TextReader In, TextWriter Out, TextWriter Error)
     /// <summary>False skips the dotnet, git and claude version checks in doctor (tests never start claude).</summary>
     public bool DoctorChecksTools { get; init; } = true;
 
+    /// <summary>What <c>project add --detect</c> uses to look at a folder. Null means the real analyzer and the git history reader.</summary>
+    public Func<string, CancellationToken, Task<Commands.ProjectDetection>>? Detector { get; init; }
+
     public static CliContext FromConsole() => new(Console.In, Console.Out, Console.Error);
 }
 

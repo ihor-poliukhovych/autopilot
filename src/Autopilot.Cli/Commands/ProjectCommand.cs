@@ -35,12 +35,32 @@ public static class ProjectCommand
         var source = new Option<string>("--source") { Description = "Where tasks come from: 'local' (files in the workspace) or 'azure-devops'.", DefaultValueFactory = _ => ProjectRegistry.LocalSource };
         source.AcceptOnlyFromAmong(ProjectRegistry.LocalSource, ProjectRegistry.AzureDevOpsSource);
         var detect = new Option<bool>("--detect") { Description = "Analyze the folder and use what it finds: base branch, build and test commands, paths, context documents and, for an Azure DevOps remote, the task source. Prints what was chosen and why. --name, --base-branch and --source still win." };
-        var command = new Command("add", "Register a project and create its folder in the workspace. Nothing is written to the repository.") { key, repo, name, baseBranch, source, detect };
+        var yes = new Option<bool>("--yes") { Description = "With --detect: do not ask 'Add this project?', save right away." };
+        var set = new Option<string[]>("--set") { Description = "Change a value before saving: key=value. Keys: branchTemplate, commitTemplate, prTitleTemplate, baseBranch, commands.build, commands.test. Repeatable.", AllowMultipleArgumentsPerToken = false };
+        var command = new Command("add", "Register a project and create its folder in the workspace. Nothing is written to the repository.") { key, repo, name, baseBranch, source, detect, yes, set };
         command.SetAction(async (parse, ct) =>
         {
             var registry = new ProjectRegistry(options.OpenWorkspace(parse));
             var repoFolder = Path.GetFullPath(parse.GetValue(repo) ?? Directory.GetCurrentDirectory());
-            var detected = parse.GetValue(detect) ? await Analyze(repoFolder, ct).ConfigureAwait(false) : null;
+            var sets = parse.GetValue(set) ?? [];
+            ProjectAnalysis? detected = null;
+            ConventionProposal? conventions = null;
+            if (parse.GetValue(detect))
+            {
+                ProjectDetection found;
+                try
+                {
+                    found = await (context.Detector ?? ProjectProposal.DetectAsync)(repoFolder, ct).ConfigureAwait(false);
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new UsageException(ex.Message);
+                }
+
+                detected = found.Analysis;
+                conventions = found.Conventions;
+            }
+
             repoFolder = detected?.Folder ?? repoFolder;
             var sourceGiven = parse.GetResult(source) is { Implicit: false };
             var taskSource = sourceGiven || detected is null ? parse.GetValue(source)! : detected.TaskSource.Value;
@@ -57,6 +77,7 @@ public static class ProjectCommand
             {
                 config = AnalysisApplier.ToConfig(detected);
                 config = branch is null ? config : config with { BaseBranch = branch };
+                config = ProjectProposal.WithConventions(config, conventions);
             }
             else
             {
@@ -79,6 +100,24 @@ public static class ProjectCommand
                         Publisher = new ModuleConfig { Type = "azure-devops" },
                     },
                 };
+            }
+
+            config = ProjectProposal.ApplySets(config, sets);
+            if (detected is not null)
+            {
+                await context.Out.WriteLineAsync(ProjectProposal.Describe(config, conventions)).ConfigureAwait(false);
+                await context.Out.WriteLineAsync().ConfigureAwait(false);
+                if (!parse.GetValue(yes))
+                {
+                    await context.Out.WriteAsync("Add this project? [y/N] ").ConfigureAwait(false);
+                    var answer = (await context.In.ReadLineAsync(ct).ConfigureAwait(false))?.Trim();
+                    if (!string.Equals(answer, "y", StringComparison.OrdinalIgnoreCase) && !string.Equals(answer, "yes", StringComparison.OrdinalIgnoreCase))
+                    {
+                        await context.Out.WriteLineAsync().ConfigureAwait(false);
+                        await context.Out.WriteLineAsync("Nothing was added: no project, folder or settings were written.").ConfigureAwait(false);
+                        return ExitCodes.Ok;
+                    }
+                }
             }
 
             var record = registry.Add(new NewProject(projectKey, repoFolder, parse.GetValue(name) ?? detected?.DisplayName.Value, config.BaseBranch, taskSource));

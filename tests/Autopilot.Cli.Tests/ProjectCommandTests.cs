@@ -146,13 +146,132 @@ public sealed class ProjectCommandTests : IDisposable
         Assert.Contains("does not exist", missing.Err);
     }
 
+    private async Task<(int Exit, string Out, string Err)> RunFakeAsync(string repoRoot, string input, params string[] args)
+    {
+        var output = new StringWriter();
+        var error = new StringWriter();
+        var detection = new Autopilot.Cli.Commands.ProjectDetection(
+            new Autopilot.Core.Analysis.ProjectAnalysis
+            {
+                Folder = repoRoot,
+                IsGitRepository = true,
+                BaseBranch = new Autopilot.Core.Analysis.Detected("develop", "fake", Autopilot.Core.Analysis.Confidence.High),
+                Build = new Autopilot.Core.Analysis.Detected("make build", "fake", Autopilot.Core.Analysis.Confidence.High),
+                Test = new Autopilot.Core.Analysis.Detected("make test", "fake", Autopilot.Core.Analysis.Confidence.High),
+                TaskSource = new Autopilot.Core.Analysis.Detected("local", "fake", Autopilot.Core.Analysis.Confidence.High),
+                Key = new Autopilot.Core.Analysis.Detected("fake", "fake", Autopilot.Core.Analysis.Confidence.High),
+                DisplayName = new Autopilot.Core.Analysis.Detected("Fake", "fake", Autopilot.Core.Analysis.Confidence.High),
+            },
+            new Autopilot.Core.Analysis.ConventionProposal(
+                true, null,
+                new("develop", 1, []),
+                new("task/task-<id>", 0.87, ["task/task-12", "task/task-13"], 0.87),
+                new(Autopilot.Core.Analysis.ConventionDetector.CommitIdSubject, 0.9, ["#12 add x"], 0.9),
+                new(Autopilot.Core.Analysis.ConventionDetector.CommitConventional, 0.8, ["feat: y"], 0.8),
+                new("#<number>", 0.9, []), new("github", 0.9, []), new("make build", 1, []), new("make test", 1, []), new("src/**", 1, []), new(string.Empty, 0, [])));
+        var context = new CliContext(new StringReader(input), output, error) { DoctorChecksTools = false, Detector = (_, _) => Task.FromResult(detection) };
+        var exit = await CliApp.RunAsync(["project", "add", "fake", "--repo", repoRoot, "--detect", .. args, "--workspace", WorkspacePath], context);
+        return (exit, output.ToString(), error.ToString());
+    }
+
+    private string SettingsPath => Path.Combine(WorkspacePath, "projects", "fake", "autopilot.json");
+
+    [Fact]
+    public async Task Detect_shows_the_proposal_asks_and_writes_the_confirmed_settings()
+    {
+        using var repo = await TestRepo.CreateAsync();
+
+        var result = await RunFakeAsync(repo.Root, "y\n");
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("task/task-{id}", result.Out);
+        Assert.Contains("87%", result.Out);
+        Assert.Contains("task/task-12", result.Out);
+        Assert.Contains("#{id} {subject}", result.Out);
+        Assert.Contains("{type}: {title}", result.Out);
+        Assert.Contains("make build", result.Out);
+        Assert.Contains("Add this project?", result.Out);
+        var config = ConfigLoader.LoadFile(SettingsPath);
+        Assert.Equal("task/task-{id}", config.BranchTemplate);
+        Assert.Equal("#{id} {subject}", config.CommitTemplate);
+        Assert.Equal("{type}: {title}", config.PrTitleTemplate);
+        Assert.Equal("develop", config.BaseBranch);
+        Assert.Equal("make test", config.Commands.Test);
+    }
+
+    [Theory]
+    [InlineData("n\n")]
+    [InlineData("\n")]
+    [InlineData("")]
+    public async Task Detect_without_a_yes_answer_writes_nothing_and_says_so(string answer)
+    {
+        using var repo = await TestRepo.CreateAsync();
+
+        var result = await RunFakeAsync(repo.Root, answer);
+
+        Assert.Equal(0, result.Exit);
+        Assert.Contains("Add this project?", result.Out);
+        Assert.Contains("Nothing was added", result.Out);
+        Assert.False(Directory.Exists(WorkspacePath));
+        Assert.False(File.Exists(SettingsPath));
+        Assert.False(Directory.Exists(Path.Combine(WorkspacePath, "projects", "fake")));
+    }
+
+    [Fact]
+    public async Task Detect_with_yes_does_not_ask()
+    {
+        using var repo = await TestRepo.CreateAsync();
+
+        var result = await RunFakeAsync(repo.Root, string.Empty, "--yes");
+
+        Assert.Equal(0, result.Exit);
+        Assert.DoesNotContain("Add this project?", result.Out);
+        Assert.True(File.Exists(SettingsPath));
+    }
+
+    [Fact]
+    public async Task Set_overrides_values_before_saving()
+    {
+        using var repo = await TestRepo.CreateAsync();
+
+        var result = await RunFakeAsync(repo.Root, string.Empty, "--yes",
+            "--set", "branchTemplate=feat/{id}-{slug}", "--set", "commitTemplate=", "--set", "prTitleTemplate=PR {id}: {title}",
+            "--set", "baseBranch=release", "--set", "commands.build=npm run b", "--set", "commands.test=npm t");
+
+        Assert.Equal(0, result.Exit);
+        var config = ConfigLoader.LoadFile(SettingsPath);
+        Assert.Equal("feat/{id}-{slug}", config.BranchTemplate);
+        Assert.Null(config.CommitTemplate);
+        Assert.Equal("PR {id}: {title}", config.PrTitleTemplate);
+        Assert.Equal("release", config.BaseBranch);
+        Assert.Equal("npm run b", config.Commands.Build);
+        Assert.Equal("npm t", config.Commands.Test);
+    }
+
+    [Theory]
+    [InlineData("colour=red")]
+    [InlineData("branchTemplate=feature/{slug}")]
+    [InlineData("commitTemplate={nope}")]
+    [InlineData("baseBranch=two words")]
+    [InlineData("noequals")]
+    public async Task An_invalid_set_is_a_usage_error_and_writes_nothing(string set)
+    {
+        using var repo = await TestRepo.CreateAsync();
+
+        var result = await RunFakeAsync(repo.Root, "y\n", "--yes", "--set", set);
+
+        Assert.Equal(2, result.Exit);
+        Assert.NotEmpty(result.Err);
+        Assert.False(Directory.Exists(Path.Combine(WorkspacePath, "projects", "fake")));
+    }
+
     [Fact]
     public async Task Add_with_detect_uses_the_detected_values_and_says_why()
     {
         using var repo = await TestRepo.CreateAsync(new Dictionary<string, string> { ["App.sln"] = "", ["src/App/App.csproj"] = "<Project/>", ["CLAUDE.md"] = "rules" });
         await Autopilot.Core.Process.ProcessRunner.RunAsync("git", ["remote", "add", "origin", "https://dev.azure.com/contoso/Shop/_git/shop-api"], repo.Root);
 
-        var add = await RunAsync("project", "add", "shop", "--repo", repo.Root, "--detect");
+        var add = await RunAsync("project", "add", "shop", "--repo", repo.Root, "--detect", "--yes");
 
         Assert.Equal(0, add.Exit);
         Assert.Contains("What was detected, and why", add.Out);
@@ -168,7 +287,7 @@ public sealed class ProjectCommandTests : IDisposable
         Assert.Equal("azure-devops", show.RootElement.GetProperty("taskSource").GetString());
 
         // An explicit --source and --base-branch win over what was detected.
-        var local = await RunAsync("project", "add", "shop-local", "--repo", repo.Root, "--detect", "--source", "local", "--base-branch", "trunk");
+        var local = await RunAsync("project", "add", "shop-local", "--repo", repo.Root, "--detect", "--yes", "--source", "local", "--base-branch", "trunk");
         Assert.Equal(0, local.Exit);
         var localConfig = ConfigLoader.Load(repo.Root, Path.Combine(WorkspacePath, "projects", "shop-local"));
         Assert.Equal("local", localConfig.Modules.WorkItems.Type);
