@@ -132,6 +132,7 @@ internal static class PoolUnattendedCommands
                 IsProcessAlive = context.IsProcessAlive,
                 Clock = clock,
                 Until = stopAt,
+                Events = new PoolRunEventStore(workspace),
             });
 
         if (branch is not null)

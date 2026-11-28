@@ -1,5 +1,6 @@
 using Autopilot.Core;
 using Autopilot.Core.Local;
+using Autopilot.Core.Pipeline;
 using Autopilot.Core.Pool;
 using Autopilot.Core.Tasks;
 
@@ -103,6 +104,56 @@ public sealed class PoolRunStatusWebTests
         Assert.Equal("waits for 1", words["4"]);
         Assert.Equal("parked", words["5"]);
         Assert.Equal("ready", words["6"]);
+    }
+
+    [Fact]
+    public async Task A_run_started_outside_the_web_app_with_events_on_the_workspace_shows_as_Running_with_a_timeline()
+    {
+        await using var ui = await WithProjectAsync();
+        var pool = new PoolService(ui.Workspace, "demo");
+        pool.Add("1");
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        // Built like the CLI builds it: events go to a PoolRunEventStore on the workspace the web page reads.
+        var runner = new PoolRunner(pool, new Autopilot.Core.Runs.RunStore(ui.Workspace, "demo"), new ProjectRunLock(ui.Workspace, _ => false), "demo",
+            async (id, _) =>
+            {
+                started.TrySetResult();
+                await release.Task;
+                return new ImplementResult(id, ImplementOutcome.Published, "ok", "autopilot/" + id);
+            },
+            new PoolRunOptions { Config = () => new Autopilot.Core.Config.PoolConfig(), Events = new PoolRunEventStore(ui.Workspace), PollInterval = TimeSpan.FromMilliseconds(20) });
+        var run = runner.RunAsync(null, Path.Combine(ui.Workspace.ProjectFolder("demo"), "report"), CancellationToken.None);
+        await started.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        var (_, body) = await ui.GetAsync(StatusUrl);
+
+        release.SetResult();
+        await run;
+        Assert.Equal("Running", body.GetProperty("status").GetString());
+        Assert.NotEmpty(body.GetProperty("timeline").EnumerateArray());
+    }
+
+    [Fact]
+    public async Task The_queue_counts_pool_entries_and_parked_tasks_together()
+    {
+        await using var ui = await WithProjectAsync();
+        var pool = new PoolService(ui.Workspace, "demo");
+        var state = new PoolStateStore(ui.Workspace, "demo");
+        for (var i = 1; i <= 12; i++)
+        {
+            pool.Add(i.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+
+        for (var i = 13; i <= 20; i++)
+        {
+            state.Park(i.ToString(System.Globalization.CultureInfo.InvariantCulture), "paid", "It costs money.", DateTimeOffset.UtcNow);
+        }
+
+        var (_, body) = await ui.GetAsync(StatusUrl);
+
+        Assert.Equal(20, body.GetProperty("queue").GetArrayLength());
     }
 
     [Fact]
