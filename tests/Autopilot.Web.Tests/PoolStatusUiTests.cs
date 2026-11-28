@@ -147,6 +147,45 @@ public sealed class PoolStatusUiTests
     }
 
     [Fact]
+    public void Integration_block_shows_five_newest_collapsed_and_all_when_toggled()
+    {
+        var js = Wwwroot("js/poolintegration.js");
+        Assert.Contains("COLLAPSED_COUNT = 5", js);
+        Assert.Contains("sorted.slice(0, COLLAPSED_COUNT)", js);
+        Assert.Contains("new Date(b.mergedAt) - new Date(a.mergedAt)", js);
+        Assert.Contains("sorted.length > COLLAPSED_COUNT", js);
+        Assert.Contains("`Show all ${sorted.length}`", js);
+        Assert.Contains("'Show fewer'", js);
+        Assert.Contains("tasks'} merged", js);
+        Assert.Contains("#${m.workItemId} (${m.taskBranch})", js);
+        Assert.Contains("mergesList(i.merges)", Wwwroot("js/poolunattended.js"));
+        var css = Wwwroot("app.css");
+        var block = css[css.IndexOf("/* Integration branch block", StringComparison.Ordinal)..css.IndexOf("/* Phone and tablet: status first", StringComparison.Ordinal)];
+        Assert.DoesNotContain("max-height", block);
+        Assert.DoesNotContain("overflow", block);
+    }
+
+    [Fact]
+    public void Integration_block_groups_the_expanded_list_by_day()
+    {
+        var js = Wwwroot("js/poolintegration.js");
+        Assert.Contains("'Today'", js);
+        Assert.Contains("'Yesterday'", js);
+        Assert.Contains("toLocaleDateString", js);
+        Assert.Contains("groupByDay(sorted)", js);
+        Assert.Contains("getFullYear(), d.getMonth(), d.getDate()", js);
+    }
+
+    [Fact]
+    public void Integration_block_remembers_the_choice_and_defaults_to_collapsed()
+    {
+        var js = Wwwroot("js/poolintegration.js");
+        Assert.Contains("localStorage.getItem(EXPANDED_KEY) === 'true'", js);
+        Assert.Contains("localStorage.setItem(EXPANDED_KEY", js);
+        Assert.Contains("catch { return false; }", js);
+    }
+
+    [Fact]
     public void An_override_marker_is_drawn_only_where_the_api_sends_the_project_default()
     {
         var unattended = Wwwroot("js/poolunattended.js");
