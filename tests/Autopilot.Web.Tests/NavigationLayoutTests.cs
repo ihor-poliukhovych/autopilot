@@ -75,10 +75,10 @@ public sealed class NavigationLayoutTests
     }
 
     [Fact]
-    public void Css_defines_left_col_420px_and_the_shared_layout_class()
+    public void Css_defines_left_col_340px_and_the_shared_layout_class()
     {
         var css = Wwwroot("app.css");
-        Assert.Matches(@"--left-col:\s*420px", css);
+        Assert.Matches(@"--left-col:\s*340px", css);
         Assert.Matches(@"\.app-layout\s*\{[^}]*grid-template-columns:\s*var\(--left-col\)\s+minmax\(0,\s*1fr\)", css);
         Assert.Matches(@"@media \(max-width: 760px\)\s*\{[^@]*\.app-right\s*\{[^}]*position: static", css);
     }

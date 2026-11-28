@@ -127,7 +127,7 @@ public sealed class PoolStatusUiTests
         Assert.Contains("app-left pool-settings stack' }, extra.element", js);
         Assert.Contains("heroCard, h('div', { class: 'pool-main' }, queue, events), extra.right", js);
         Assert.Matches(@"\.pool-layout\s*\{[^}]*var\(--left-col\)", css);
-        Assert.Matches(@"--left-col:\s*420px", css);
+        Assert.Matches(@"--left-col:\s*340px", css);
         // The settings are one details element: closed on a phone, one line per setting.
         Assert.Contains("h('details', { class: 'card pool-panel', open: true", unattended);
         Assert.Contains("if (phone.matches && details) details.open = false", js);
