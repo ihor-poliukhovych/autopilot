@@ -19,6 +19,7 @@ They live in the project's `autopilot.json` under `pool`, in the Pool page of th
   "onFailure": { "retries": 1, "then": "park", "pauseMinutes": 30 },
   "alwaysAsk": ["secrets", "stored-data", "contracts", "paid", "settings", "rules"],
   "budget": { "maxAgentRuns": null, "stopAtUsagePercent": 80 },
+  "retry": { "continue": true },
   "concurrency": 1,
   "integration": { "enabled": true, "branch": null, "baseBranch": null, "finalPr": "draft" }
 }
@@ -30,6 +31,7 @@ They live in the project's `autopilot.json` under `pool`, in the Pool page of th
 | `master` | The pool master: a read-only `claude -p` run that answers needs-human questions and classifies failures. Only used when the pool is unattended. |
 | `master.maxDecisionsPerRun` | After this many answers in one run the master parks the rest. |
 | `onFailure` | A task that failed for its own reasons is tried again `retries` times with the master's notes, then parked. `pauseMinutes` is how long an infrastructure failure pauses the pool. |
+| `retry.continue` | `true` (default): a retry starts from the previous attempt's kept branch (`<prefix><id>-attempt-N`, the latest), merged with the current base, and its prompt lists the earlier reviewer and gate findings. If the merge conflicts the retry starts clean and the log says so. `false`: every attempt starts clean. |
 | `alwaysAsk` | Topics the master never decides. A question about one of them parks the task. |
 | `budget` | `maxAgentRuns` is the most agent runs (implement attempts and master calls) in a rolling 24 hours. `stopAtUsagePercent` stops the pool when the subscription usage is known and at or above it. |
 | `concurrency` | 1 to 4 agents at once. |
