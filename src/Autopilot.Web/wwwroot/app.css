@@ -537,6 +537,11 @@ input.pool-switch:checked::after { left: 19px; background: var(--accent-text); }
 @media (prefers-reduced-motion: reduce) { input.pool-switch::after { transition: none; } }
 @media (max-width: 1180px) { .pool-main { grid-template-columns: minmax(0, 1fr); } }
 
+/* Integration branch block: compact merge rows, no inner scrollbar. */
+.integration-list { margin: 0; padding-left: 1.1rem; }
+.integration-row { line-height: 1.4; }
+.integration-day-heading { margin: .5rem 0 .15rem; font-size: .85rem; font-weight: 600; }
+
 /* Phone and tablet: status first, then events, then the queue, then the settings (closed) and the rest. */
 @media (max-width: 900px) {
   .pool-layout { display: flex; flex-direction: column; gap: var(--gutter); }

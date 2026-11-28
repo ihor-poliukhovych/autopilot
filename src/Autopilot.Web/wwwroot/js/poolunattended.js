@@ -1,6 +1,7 @@
 import { get, post, put, del } from './api.js';
 import { h, clear, put as place, toast, badge, field, ask, ago } from './dom.js';
 import { overrides } from './poolstatus.js';
+import { mergesList } from './poolintegration.js';
 
 const base = key => `/projects/${encodeURIComponent(key)}/pool`;
 
@@ -159,7 +160,7 @@ function finalPrCard(key, status, reload) {
   return h('section', { class: 'card stack', 'data-part': 'final-pr' },
     h('h2', {}, 'Integration branch'),
     h('p', {}, h('code', {}, i.branch), ` collects the finished tasks, each merged after build and tests passed. You merge one final PR into ${i.baseBranch}.`),
-    i.merges.length ? h('ul', {}, i.merges.map(m => h('li', {}, `#${m.workItemId} (${m.taskBranch}) ${ago(m.mergedAt)}`))) : null,
+    mergesList(i.merges),
     i.finalPrUrl ? h('p', {}, 'Final PR (draft): ', h('a', { href: i.finalPrUrl, target: '_blank', rel: 'noopener noreferrer' }, i.finalPrUrl)) : null,
     !i.finalPrUrl ? h('div', { class: 'row' }, h('button', { type: 'button', onclick: async () => {
       const ok = await ask({ title: 'Open the final PR?', confirm: 'Open as draft', body: [
