@@ -149,6 +149,20 @@ public sealed record GateConfig
 
     /// <summary>When non-test code changed, at least one test file must change too.</summary>
     public bool RequireTestChange { get; init; } = true;
+
+    /// <summary>
+    /// "full" runs every test for a task; "affected" builds once and runs only the test projects that
+    /// reference a changed project. The pool's final PR check and the post-merge check are always full.
+    /// </summary>
+    public string Scope { get; init; } = GateScopes.Full;
+}
+
+public static class GateScopes
+{
+    public const string Full = "full";
+    public const string Affected = "affected";
+
+    public static IReadOnlyList<string> All { get; } = [Full, Affected];
 }
 
 public sealed record RolesConfig

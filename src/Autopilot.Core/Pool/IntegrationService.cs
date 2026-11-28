@@ -317,7 +317,11 @@ public sealed class IntegrationService(
         }
     }
 
-    private static async Task<(bool Ok, string Message)> BuildAndTestAsync(AutopilotConfig config, string path, CancellationToken ct)
+    /// <summary>
+    /// The final PR check and the post-merge check: always the configured build and test commands in
+    /// full. <c>gate.scope</c> only applies to the gate of a single task, never here.
+    /// </summary>
+    public static async Task<(bool Ok, string Message)> BuildAndTestAsync(AutopilotConfig config, string path, CancellationToken ct)
     {
         foreach (var (name, command) in new[] { ("build", config.Commands.Build), ("test", config.Commands.Test) })
         {

@@ -197,6 +197,10 @@ public static class ConfigLoader
             AddIfNotPositive(problems, "gate.maxFilesChanged", config.Gate.MaxFilesChanged);
             AddIfNotPositive(problems, "gate.maxSourceLinesChanged", config.Gate.MaxSourceLinesChanged);
             AddIfNotPositive(problems, "gate.maxTestLinesChanged", config.Gate.MaxTestLinesChanged);
+            if (!GateScopes.All.Contains(config.Gate.Scope ?? string.Empty, StringComparer.Ordinal))
+            {
+                problems.Add($"gate.scope is \"{config.Gate.Scope}\". Use one of: {string.Join(", ", GateScopes.All)}.");
+            }
         }
 
         if (config.Roles is null)
