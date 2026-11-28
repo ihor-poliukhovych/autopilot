@@ -266,6 +266,7 @@ public sealed class PoolRunner(
 
         var infos = new Dictionary<string, PoolTaskInfo>(StringComparer.Ordinal);
         var pending = new List<string>(queue);
+        var handled = new HashSet<string>(StringComparer.Ordinal);
         var running = new Dictionary<Task<Processed>, (string Id, DateTimeOffset Started)>();
         var finished = new HashSet<string>(StringComparer.Ordinal);
         var failedIds = new HashSet<string>(StringComparer.Ordinal);
@@ -276,6 +277,17 @@ public sealed class PoolRunner(
         {
         while (!ct.IsCancellationRequested)
         {
+            // Read the queue again: a task added, unparked or moved by a person takes effect at once, and a task
+            // removed while it waits is never started. Tasks this run already started or parked are not added again.
+            var current = pool.List().Select(e => e.WorkItemId).Where(id => !handled.Contains(id) && !running.Values.Any(r => r.Id == id)).ToList();
+            foreach (var gone in pending.Except(current, StringComparer.Ordinal).ToList())
+            {
+                state?.ClearSlot(gone);
+                lastWait.Remove(gone);
+            }
+
+            pending = current;
+
             // Fill the free slots, in queue order, with tasks that may start now.
             if (stopped is null)
             {
@@ -326,6 +338,7 @@ public sealed class PoolRunner(
                             parked.Add(Park(id, null, $"It depends on a task that did not finish ({why})."));
                             Record(PoolRunEvent.TaskParked, id, "dependency failed");
                             pending.RemoveAt(i);
+                            handled.Add(id);
                             state?.ClearSlot(id);
                             pool.Remove(id);
                             continue;
@@ -344,6 +357,7 @@ public sealed class PoolRunner(
                     }
 
                     pending.RemoveAt(i);
+                    handled.Add(id);
                     tried++;
                     lastWait.Remove(id);
                     var started = clock.GetUtcNow();
@@ -362,6 +376,7 @@ public sealed class PoolRunner(
                     {
                         parked.Add(Park(id, null, "It waits for tasks that can never finish first (a dependency cycle)."));
                         Record(PoolRunEvent.TaskParked, id, "dependency cycle");
+                        handled.Add(id);
                         state?.ClearSlot(id);
                         pool.Remove(id);
                     }
@@ -376,7 +391,7 @@ public sealed class PoolRunner(
             // The pool also beats now and then, so a run that dies is noticed.
             beat.Touch();
             var waiting = new List<Task>(running.Keys);
-            waiting.Add(Task.Delay(pending.Count > 0 && stopped is null ? Min(_options.PollInterval, _options.HeartbeatInterval) : _options.HeartbeatInterval, ct));
+            waiting.Add(Task.Delay(Min(_options.PollInterval, _options.HeartbeatInterval), ct));
 
             var woken = await Task.WhenAny(waiting).ConfigureAwait(false);
             if (woken is not Task<Processed> completed)
