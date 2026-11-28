@@ -47,6 +47,38 @@ function lastRun(item) {
 
 const STATES = [['', 'All', 'all'], ['needs-human', 'Needs a person', 'needsHuman'], ['agent-ready', 'Agent-ready', 'agentReady'], ['not-triaged', 'Not triaged', 'notTriaged'], ['stale', 'Stale triage', 'stale']];
 const PAGE_SIZE = 25;
+const TREE_PAGE_SIZE = 200;
+
+/** One tree node and, when it is an expanded group, its children. A group shows chevron, kind chip, progress bar and "N of M". */
+function treeRows(node, depth, byId, data, expanded, select, repaint) {
+  const frag = document.createDocumentFragment();
+  const indent = `padding-left:calc(var(--sp-8) + ${depth} * var(--sp-16))`;
+  if (node.counts) {
+    const c = node.counts;
+    const total = c.done + c.inProgress + c.needsYou + c.notStarted;
+    const open = expanded.get(node.id) !== false;
+    const chevron = h('button', {
+      type: 'button', class: 'tree-chevron', 'aria-expanded': String(open), 'aria-label': `${open ? 'Collapse' : 'Expand'} #${node.id}`,
+      onclick: ev => { ev.stopPropagation(); expanded.set(node.id, !open); repaint(); },
+    }, open ? '▾' : '▸');
+    frag.append(h('div', { class: 'tree-row tree-group', role: 'treeitem', 'data-id': String(node.id), 'aria-expanded': String(open), style: indent, onclick: () => select(node.id) },
+      chevron,
+      h('span', { class: 'chip tree-kind' }, node.kind || 'group'),
+      h('span', { class: 'tree-title' }, `#${node.id} ${node.title}`),
+      h('span', { class: 'tree-progress', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(c.done) },
+        h('span', { class: 'tree-progress-fill', style: `width:${total ? Math.round(100 * c.done / total) : 0}%` })),
+      h('span', { class: 'tree-count muted small' }, `${c.done} of ${total}`)));
+    if (open) for (const child of node.children) frag.append(treeRows(child, depth + 1, byId, data, expanded, select, repaint));
+    return frag;
+  }
+  const item = byId[String(node.id)];
+  frag.append(h('div', { class: 'tree-row tree-task', role: 'treeitem', 'data-id': String(node.id), style: indent, onclick: () => select(node.id) },
+    h('span', { class: 'inbox-id' }, `#${node.id}`),
+    h('span', { class: 'tree-title' }, node.title),
+    item ? triageBadges(item) : null,
+    h('span', { class: `tree-status status-${node.status.replace(/ /g, '-')}` }, node.status)));
+  return frag;
+}
 
 async function renderList(ctx, sel, select) {
   const { view, key } = ctx;
@@ -54,12 +86,14 @@ async function renderList(ctx, sel, select) {
   view.append(holder);
   let timer = null;
   const query = { state: '', q: '', page: 1 };
+  const expanded = new Map(); // group id -> false when collapsed; kept here so it survives a list refresh
 
   async function load() {
-    const params = new URLSearchParams({ pageSize: String(PAGE_SIZE), page: String(query.page) });
+    const filtered = !!(query.state || query.q);
+    const params = new URLSearchParams({ pageSize: String(filtered ? PAGE_SIZE : TREE_PAGE_SIZE), page: String(filtered ? query.page : 1) });
     if (query.state) params.set('state', query.state);
     if (query.q) params.set('q', query.q);
-    const data = await get(`${base(key)}/tasks?${params}`);
+    const [data, tree] = await Promise.all([get(`${base(key)}/tasks?${params}`), filtered ? null : get(`${base(key)}/tasks/tree`)]);
     query.page = data.page;
     clear(holder);
     holder.append(
@@ -81,6 +115,23 @@ async function renderList(ctx, sel, select) {
     }
     if (!data.items.length) {
       holder.append(h('div', { class: 'card' }, emptyState(data.localTasks ? 'Write down one thing you want done. It does not need to be perfect: triage tells you what is missing.' : 'No open work items were found in the tracker.', data.localTasks ? { label: 'Add a task', onclick: () => showAddForm(ctx, holder, load) } : { label: 'Check the task source', href: `#/p/${encodeURIComponent(key)}/settings` }, data.localTasks ? 'No tasks yet' : 'Nothing to show')));
+      return data;
+    }
+    if (tree && tree.length) {
+      if (sel.auto || !sel.id) { sel.id = String(tree[0].id); sel.auto = false; }
+      const box = h('div', { class: 'task-tree card', 'data-part': 'task-tree', role: 'tree' },
+        h('div', { class: 'tree-head' }, 'TASKS AND GROUPS / PROGRESS'));
+      const byId = Object.fromEntries(data.items.map(i => [String(i.id), i]));
+      const paint = () => { clear(box); box.append(h('div', { class: 'tree-head' }, 'TASKS AND GROUPS / PROGRESS'), ...tree.map(n => treeRows(n, 0, byId, data, expanded, select, paint))); sel.paintList(); };
+      sel.paintList = () => {
+        for (const r of box.querySelectorAll('.tree-row')) {
+          const on = r.dataset.id === sel.id;
+          r.classList.toggle('selected', on);
+          if (on) r.setAttribute('aria-current', 'true'); else r.removeAttribute('aria-current');
+        }
+      };
+      paint();
+      holder.append(box);
       return data;
     }
     if (sel.auto || !sel.id) { sel.id = String(data.items[0].id); sel.auto = false; }

@@ -290,7 +290,22 @@ dialog .row.end { justify-content: flex-end; margin-top: var(--s4); }
 /* Pool tab: settings in the left column (--left-col), status and queue on the right. */
 .pool-layout { grid-template-columns: var(--left-col) minmax(0, 1fr); }
 /* Tasks tab: the task list in the left column, the selected task on the right. */
-.tasks-layout { grid-template-columns: var(--left-col) minmax(0, 1fr); }
+.tasks-layout { --left-col: 420px; grid-template-columns: var(--left-col) minmax(0, 1fr); }
+.task-tree { padding: 0; overflow: hidden; }
+.tree-head { padding: var(--sp-8) var(--sp-12); font-size: var(--fs-label); letter-spacing: .06em; color: var(--muted); background: var(--surface-2); border-bottom: 1px solid var(--border); }
+.tree-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-6) var(--sp-8); border-left: 3px solid transparent; border-bottom: 1px solid var(--border); cursor: pointer; min-width: 0; }
+.tree-row:hover { background: var(--surface-2); }
+.tree-row.selected { border-left-color: var(--accent); background: var(--accent-soft); }
+.tree-chevron { border: 0; background: none; color: var(--muted); padding: 0 var(--sp-4); min-height: 0; cursor: pointer; }
+.tree-kind { font-size: var(--fs-label); text-transform: uppercase; color: var(--muted); background: var(--surface-3); border-radius: var(--radius-pill); padding: 0 var(--sp-6); }
+.tree-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-progress { flex: 0 0 64px; height: 6px; background: var(--surface-3); border-radius: var(--radius-pill); overflow: hidden; }
+.tree-progress-fill { display: block; height: 100%; background: var(--ok); }
+.tree-count { flex: 0 0 auto; white-space: nowrap; }
+.tree-status { flex: 0 0 auto; font-size: var(--fs-sm); color: var(--muted); }
+.tree-status.status-done { color: var(--ok); }
+.tree-status.status-in-progress { color: var(--run); }
+.tree-status.status-needs-you { color: var(--warn); }
 .task-card .inbox-title { -webkit-line-clamp: 3; line-clamp: 3; }
 /* Up to 900px both pages are one usable column: the right area stays in the flow (no drawer), nothing overflows. */
 @media (max-width: 900px) {

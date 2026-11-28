@@ -55,6 +55,11 @@ public sealed record TaskTreeNode(int Id, string Title, int? ParentId, bool Clos
     [System.Text.Json.Serialization.JsonIgnore]
     internal int Bucket { get; init; }
 
+    /// <summary>The status word of the node: done, in progress, needs you or not started. A group takes it from its leaves.</summary>
+    public string Status { get; init; } = StatusWords[3];
+
+    internal static readonly string[] StatusWords = ["done", "in progress", "needs you", "not started"];
+
     /// <summary>How many leaf tasks of this subtree fall in a bucket (0 done, 1 in progress, 2 needs you, 3 not started).</summary>
     internal int Leaf(int bucket) => Counts is null
         ? (Bucket == bucket ? 1 : 0)
@@ -173,12 +178,14 @@ public sealed class TaskOperations(WebUiOptions options)
             if (children.Count == 0)
             {
                 var bucket = t.Closed ? 0 : active.Contains(t.Id) ? 1 : needsYou.Contains(t.Id) ? 2 : 3;
-                return new TaskTreeNode(t.Number, t.Title, t.ParentNumber, t.Closed, node.Kind, null, []) { Bucket = bucket };
+                return new TaskTreeNode(t.Number, t.Title, t.ParentNumber, t.Closed, node.Kind, null, []) { Bucket = bucket, Status = TaskTreeNode.StatusWords[bucket] };
             }
 
             var counts = new TaskTreeCounts(
                 children.Sum(c => c.Leaf(0)), children.Sum(c => c.Leaf(1)), children.Sum(c => c.Leaf(2)), children.Sum(c => c.Leaf(3)));
-            return new TaskTreeNode(t.Number, t.Title, t.ParentNumber, t.Closed, node.Kind, counts, children);
+            var total = counts.Done + counts.InProgress + counts.NeedsYou + counts.NotStarted;
+            var word = counts.Done == total ? 0 : counts.InProgress > 0 ? 1 : counts.NeedsYou > 0 ? 2 : 3;
+            return new TaskTreeNode(t.Number, t.Title, t.ParentNumber, t.Closed, node.Kind, counts, children) { Status = TaskTreeNode.StatusWords[word] };
         }
 
         return roots.Select(Build).ToList();

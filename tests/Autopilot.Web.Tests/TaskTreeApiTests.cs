@@ -75,6 +75,30 @@ public sealed class TaskTreeApiTests
         Assert.True(Node(tree, 4).GetProperty("closed").GetBoolean());
         Assert.Equal(JsonValueKind.Null, leaf.GetProperty("counts").ValueKind);
         Assert.Equal(JsonValueKind.Null, Node(tree, 7).GetProperty("parentId").ValueKind);
+        Assert.Equal("done", Node(tree, 4).GetProperty("status").GetString());
+        Assert.Equal("in progress", Node(tree, 5).GetProperty("status").GetString());
+        Assert.Equal("needs you", Node(tree, 3).GetProperty("status").GetString());
+        Assert.Equal("not started", leaf.GetProperty("status").GetString());
+        Assert.Equal("in progress", root.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public void Tasks_tab_renders_the_tree_with_chevrons_progress_and_tokens_only()
+    {
+        var dir = AppContext.BaseDirectory;
+        var root = dir[..dir.IndexOf("tests", StringComparison.Ordinal)];
+        var js = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "js", "tasks.js"));
+        var css = File.ReadAllText(Path.Combine(root, "src", "Autopilot.Web", "wwwroot", "app.css"));
+        Assert.Contains("/tasks/tree", js);
+        Assert.Contains("TASKS AND GROUPS / PROGRESS", js);
+        Assert.Contains("tree-chevron", js);
+        Assert.Contains("`${c.done} of ${total}`", js);
+        Assert.Contains("expanded.set(node.id", js);
+        Assert.Contains("node.status", js);
+        Assert.Matches(@"\.tasks-layout\s*\{\s*--left-col:\s*420px", css);
+        Assert.Matches(@"\.tree-progress-fill\s*\{[^}]*var\(--ok\)", css);
+        var treeCss = string.Join("\n", css.Split('\n').Where(l => l.Contains(".tree-") || l.Contains(".task-tree")));
+        Assert.DoesNotMatch(@"#[0-9a-fA-F]{3,6}\b", treeCss);
     }
 
     [Fact]
