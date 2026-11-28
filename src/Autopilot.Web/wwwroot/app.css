@@ -301,6 +301,10 @@ dialog .row.end { justify-content: flex-end; margin-top: var(--s4); }
 .tree-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tree-progress { flex: 0 0 64px; height: 6px; background: var(--surface-3); border-radius: var(--radius-pill); overflow: hidden; }
 .tree-progress-fill { display: block; height: 100%; background: var(--ok); }
+.group-progress { flex: 1 1 auto; max-width: 320px; }
+.group-actions { flex-wrap: wrap; }
+.group-child { display: flex; align-items: center; gap: var(--sp-8); width: 100%; text-align: left; background: var(--surface-2); }
+.group-child .tree-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bulk-bar[hidden], .bulk-bar [hidden] { display: none; }
 .tree-row.drop-target { outline: 2px solid var(--ok); }
 .tree-check { margin-right: var(--sp-8); }
