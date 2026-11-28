@@ -64,6 +64,13 @@ that cannot start). The pool pauses with the reason and a retry time. Other fail
 
 A pause blocks new runs until its retry time or until `autopilot pool resume`.
 
+A person can pause the pool too: `autopilot pool pause` (or `POST /pool/pause`). The run finishes the agent
+steps already started and starts no new task, also when the pause comes while the run is going. The status
+shows Paused with the reason "Paused by a person" and the sub-status "finishing current tasks" while tasks
+still run; once none runs, the sub-status goes away. This pause has no retry time and never expires: only
+`autopilot pool resume` (or the web resume) lifts it. Pausing twice changes nothing, and a budget or
+infrastructure pause keeps its retry time.
+
 A used-up budget is not a failure. When `maxAgentRuns` or the usage limit is reached, the pool stops,
 the task that was about to run stays queued (no failure decision, no retry used, nothing parked), and
 the Pool page shows "Budget used up, resets at ..." (the time the oldest counted run leaves the 24-hour
@@ -164,7 +171,7 @@ what will happen, the next run, and a button to cancel.
 autopilot pool run [--limit N] [--unattended] [--until HH:mm]
 autopilot pool settings [--unattended true|false] [--concurrency N] [--master true|false]
                         [--max-agent-runs N] [--stop-at-usage N] [--integration true|false]
-autopilot pool status | resume | decisions [revert <id>] | parked | unpark <id>
+autopilot pool status | pause | resume | decisions [revert <id>] | parked | unpark <id>
 autopilot pool integration [pr | new]
 autopilot schedule set | show | remove | catch-up
 ```

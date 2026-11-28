@@ -230,6 +230,27 @@ public sealed class PoolUnattendedCliTests : IDisposable
     }
 
     [Fact]
+    public async Task Pool_pause_sets_a_person_pause_says_so_when_already_paused_and_resume_lifts_it()
+    {
+        using var repo = await AddProjectAsync();
+        var state = new PoolStateStore(new Ws(WorkspacePath), "demo");
+
+        var first = await Cli("pool", "pause", "--project", "demo");
+        Assert.Equal(0, first.Exit);
+        Assert.Contains("The pool is paused", first.Out, StringComparison.Ordinal);
+        Assert.Equal("Paused by a person", state.CurrentPause()!.Reason);
+        Assert.Null(state.CurrentPause()!.RetryAt);
+
+        var second = await Cli("pool", "pause", "--project", "demo");
+        Assert.Equal(0, second.Exit);
+        Assert.Contains("already paused", second.Out, StringComparison.Ordinal);
+
+        var resumed = await Cli("pool", "resume", "--project", "demo");
+        Assert.Contains("no longer paused", resumed.Out, StringComparison.Ordinal);
+        Assert.Null(state.CurrentPause());
+    }
+
+    [Fact]
     public async Task Schedule_set_takes_a_date_a_repeat_a_stop_time_and_a_limit()
     {
         using var repo = await AddProjectAsync();

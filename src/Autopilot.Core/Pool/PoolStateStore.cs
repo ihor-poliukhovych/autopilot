@@ -268,12 +268,38 @@ public sealed class PoolStateStore(Workspace.Workspace workspace, string project
 
     // ---------- pause ----------
 
+    /// <summary>The reason of a pause a person asked for. Such a pause has no retry time and never expires.</summary>
+    public const string PersonPauseReason = "Paused by a person";
+
+    /// <summary>The sub-status shown while a person pause waits for the tasks that already started.</summary>
+    public const string FinishingCurrentTasks = "finishing current tasks";
+
+    /// <summary>
+    /// Records a pause a person asked for. Does nothing when the pool is already paused: a budget or infrastructure
+    /// pause keeps its retry time, a person pause stays as it is. Returns true when the pause was newly set.
+    /// </summary>
+    public bool PauseByPerson(DateTimeOffset at)
+    {
+        using var connection = workspace.Open();
+        return Db.Execute(connection, "INSERT OR IGNORE INTO pool_pause (project_key, reason, retry_at, created_at) VALUES ($k, $r, NULL, $t)",
+            ("$k", projectKey), ("$r", PersonPauseReason), ("$t", Db.Stamp(at))) > 0;
+    }
+
     public void Pause(string reason, DateTimeOffset? retryAt, DateTimeOffset at)
     {
+        // A pause a person asked for is only lifted by a person.
+        if (CurrentPause() is { } existing && IsPersonPause(existing))
+        {
+            return;
+        }
+
         using var connection = workspace.Open();
         Db.Execute(connection, "INSERT OR REPLACE INTO pool_pause (project_key, reason, retry_at, created_at) VALUES ($k, $r, $a, $t)",
             ("$k", projectKey), ("$r", reason), ("$a", retryAt is { } r ? Db.Stamp(r) : null), ("$t", Db.Stamp(at)));
     }
+
+    public static bool IsPersonPause(PoolPause pause) =>
+        pause.RetryAt is null && string.Equals(pause.Reason, PersonPauseReason, StringComparison.Ordinal);
 
     public PoolPause? CurrentPause()
     {

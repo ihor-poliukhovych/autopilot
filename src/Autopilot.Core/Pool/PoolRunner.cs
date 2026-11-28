@@ -105,6 +105,8 @@ public sealed class PoolRunner(
     /// <summary>A pool pause that only says the budget is used up. It starts the pause reason the Pool page shows.</summary>
     public const string BudgetPausePrefix = "Budget used up";
 
+    private const string PersonPauseStop = "The pool is paused by a person. No new task starts; tasks already started finish.";
+
     private readonly PoolRunOptions _options = options ?? new PoolRunOptions();
 
     private sealed record Processed(string Bucket, ImplementResult? Result, string? StopBecause, bool Keep, string? Message = null);
@@ -169,7 +171,11 @@ public sealed class PoolRunner(
         // message: the budget itself is checked again below, so a raised limit takes effect at once.
         if (state?.CurrentPause() is { } pause)
         {
-            if (pause.Reason.StartsWith(BudgetPausePrefix, StringComparison.Ordinal))
+            if (PoolStateStore.IsPersonPause(pause))
+            {
+                stopped = PersonPauseStop;
+            }
+            else if (pause.Reason.StartsWith(BudgetPausePrefix, StringComparison.Ordinal))
             {
                 state.Resume();
                 Record(PoolRunEvent.PauseBudget, null, pause.Reason);
@@ -288,6 +294,13 @@ public sealed class PoolRunner(
                     var id = pending[i];
                     if (limit is { } max && tried >= max)
                     {
+                        break;
+                    }
+
+                    // A person may pause the pool while it runs: no new task starts, the started ones finish.
+                    if (state?.CurrentPause() is { } personPause && PoolStateStore.IsPersonPause(personPause))
+                    {
+                        stopped = PersonPauseStop;
                         break;
                     }
 

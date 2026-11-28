@@ -182,6 +182,7 @@ internal static class PoolUnattendedCommands
     {
         pool.Subcommands.Add(Settings(options, context));
         pool.Subcommands.Add(Status(options, context));
+        pool.Subcommands.Add(Pause(options, context));
         pool.Subcommands.Add(Resume(options, context));
         pool.Subcommands.Add(Decisions(options, context));
         pool.Subcommands.Add(Parked(options, context));
@@ -271,6 +272,28 @@ internal static class PoolUnattendedCommands
             }
 
             await context.Out.WriteLineAsync($"Parked: {parked.Count}. Master decisions: {state.Decisions().Count} (undone by a person: {state.RevertedCount()}).").ConfigureAwait(false);
+            return ExitCodes.Ok;
+        });
+        return command;
+    }
+
+    private static Command Pause(ProjectOptions options, CliContext context)
+    {
+        var command = new Command("pause", "Pause the pool: tasks already started finish, no new task starts. 'pool resume' lifts it.");
+        command.SetAction(async (parse, _) =>
+        {
+            var (project, workspace) = options.Resolve(parse).RequireRegistered();
+            var state = new PoolStateStore(workspace, project.Key);
+            if (state.PauseByPerson(DateTimeOffset.UtcNow))
+            {
+                await context.Out.WriteLineAsync("The pool is paused. Tasks already started finish; no new task starts. Run 'autopilot pool resume' to continue.").ConfigureAwait(false);
+            }
+            else
+            {
+                var pause = state.CurrentPause();
+                await context.Out.WriteLineAsync($"The pool is already paused: {pause?.Reason}. Run 'autopilot pool resume' to lift it.").ConfigureAwait(false);
+            }
+
             return ExitCodes.Ok;
         });
         return command;
