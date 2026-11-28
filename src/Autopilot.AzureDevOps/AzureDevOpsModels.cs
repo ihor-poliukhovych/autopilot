@@ -14,7 +14,9 @@ public static class WorkItemFields
     public const string AssignedTo = "System.AssignedTo";
     public const string WorkItemType = "System.WorkItemType";
 
-    public static IReadOnlyList<string> All { get; } = [Id, Title, Description, AcceptanceCriteria, Tags, State, WorkItemType, AssignedTo];
+    public const string IterationPath = "System.IterationPath";
+
+    public static IReadOnlyList<string> All { get; } = [Id, Title, Description, AcceptanceCriteria, Tags, State, WorkItemType, AssignedTo, IterationPath];
 }
 
 /// <summary>A work item as returned by the batch endpoint: id, revision and the requested fields.</summary>

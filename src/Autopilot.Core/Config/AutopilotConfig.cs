@@ -38,6 +38,17 @@ public sealed record AutopilotConfig
     [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public string? PrTitleTemplate { get; init; }
 
+    /// <summary>
+    /// Optional template that maps a task's iteration or fix version to a release branch, for example
+    /// <c>release/release-{major}.{minor}.*</c>. Needs a wildcard (*) or a placeholder ({major}, {minor}, {patch}).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetBranchTemplate { get; init; }
+
+    /// <summary>The tracker field the target branch is read from, for example "iteration". Unset: not used.</summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
+    public string? TargetBranchField { get; init; }
+
     public CommandsConfig Commands { get; init; } = new();
 
     /// <summary>Glob patterns (relative to the project root) the implementer may write to.</summary>
