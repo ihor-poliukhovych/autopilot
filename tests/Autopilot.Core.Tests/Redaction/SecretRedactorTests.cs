@@ -101,6 +101,8 @@ public class SecretRedactorTests
         var r = R("Server=tcp:db1.contoso.com,1433;Database=app;User Id=sa;Password=P@ss;w0rd;Encrypt=true");
         Assert.DoesNotContain("db1.contoso.com", r);
         Assert.DoesNotContain("P@ss", r);
+        Assert.DoesNotContain("w0rd", r);
+        Assert.Contains("Encrypt=true", r);
         Assert.Contains("Database=app", r);
         AssertGone("Server=myhost;Password=\"a;b c\"", "a;b c", "myhost");
         AssertGone("AccountKey=abcDEF123+/==;EndpointSuffix=core.windows.net", "abcDEF123");
@@ -258,8 +260,24 @@ public class SecretRedactorTests
     public void Deep_exception_chain_is_bounded()
     {
         Exception e = new("password=deep1");
-        for (var i = 0; i < 200; i++) e = new Exception("level " + i, e);
+        for (var i = 0; i < 200; i++) e = new Exception("level " + i + " password=near" + i, e);
         var text = SecretRedactor.RedactException(e);
         Assert.DoesNotContain("deep1", text);
+        Assert.DoesNotContain("password=near", text);
+        Assert.DoesNotContain("=near", text);
+        Assert.Contains("[REDACTED:secret]", text);
+        Assert.Contains("level 199", text);
+        Assert.DoesNotContain("level 100", text);
+    }
+
+    [Fact]
+    public void Windows_profile_with_spaces_is_masked()
+    {
+        var r = R(@"at C:\Users\John Doe\src\x.cs:line 3 failed");
+        Assert.DoesNotContain("John", r);
+        Assert.DoesNotContain("Doe", r);
+        Assert.DoesNotContain("x.cs", r);
+        Assert.Contains("failed", r);
+        Assert.Equal(r, R(r));
     }
 }

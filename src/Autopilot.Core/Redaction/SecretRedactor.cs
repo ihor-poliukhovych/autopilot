@@ -24,6 +24,8 @@ public static class SecretRedactor
     // Characters that end a path or URL part.
     private const string PathChars = @"[^\s""'<>|*?:,;()\[\]{}]";
 
+    private const string UserName = @"[^\\/\s:*?""<>|,;()\[\]{}']+";
+
     private sealed record Rule(Regex Regex, MatchEvaluator Evaluator);
 
     private static string P(string kind) => "[REDACTED:" + kind + "]";
@@ -79,7 +81,7 @@ public static class SecretRedactor
         // Secret key=value / "key": "value" pairs (also inside connection strings and JSON).
         new Rule(new Regex(
             @"(?<pre>" + SecretKeys + @"[\w.\-]{0,32}\\?[""']?\s*[:=]\s*)" +
-            @"(?:\\""(?<v4>(?:(?!\\"")[^\r\n])*)\\""|""(?<v1>(?:[^""\\]|\\.)*)""|'(?<v2>[^']*)'|(?<v3>[^\s""';,&\\]+))",
+            @"(?:\\""(?<v4>(?:(?!\\"")[^\r\n])*)\\""|""(?<v1>(?:[^""\\]|\\.)*)""|'(?<v2>[^']*)'|(?<v3>(?:[^\s""';,&\\]|;(?![\w ]{0,32}=)(?=[^\s;]))+))",
             Ci, MatchTimeout),
             m =>
             {
@@ -99,6 +101,8 @@ public static class SecretRedactor
 
         // Windows paths: UNC, then drive paths.
         Simple(@"\\\\[\w.\-]+\\" + PathChars + @"*", Cs, "path"),
+        // Profile directories may contain spaces (C:\Users\John Doe\x.cs): mask the whole name.
+        Simple(@"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]+Users[\\/](?:" + UserName + @"(?: " + UserName + @"){1,3}(?=[\\/])|" + UserName + @")(?:[\\/]" + PathChars + @"*)*", Ci, "path"),
         Simple(@"(?<![A-Za-z0-9_])[A-Za-z]:[\\/]" + PathChars.Replace(@"[^", @"[^\\/") + @"*(?:[\\/]" + PathChars + @"*)*", Cs, "path"),
 
         // Unix paths under well-known roots, and ~/ home paths.
